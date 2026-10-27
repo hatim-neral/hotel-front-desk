@@ -19,7 +19,7 @@ export default function CheckOutList({ guests }: { guests: Guest[] }) {
       <input
         className="search"
         type="search"
-        placeholder="Room number, guest ID (HSL…), phone or name…"
+        placeholder="Room number, bill ID (HSL…), phone or name…"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         autoFocus

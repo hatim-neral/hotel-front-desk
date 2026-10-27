@@ -62,7 +62,7 @@ export default function Dashboard({ guests, rooms }: { guests: Guest[]; rooms: R
           ref={search}
           className="search"
           type="search"
-          placeholder="Search guest: name, room, guest ID (HSL…), phone or ID number"
+          placeholder="Search guest: name, room, bill ID (HSL…), phone or ID number"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === 'Escape' && setQ('')}

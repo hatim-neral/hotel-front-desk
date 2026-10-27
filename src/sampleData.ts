@@ -31,7 +31,7 @@ function indian(name: string, gender: Companion['gender'], age: string, idType: 
 }
 
 function bill(billNo: string, category: string, amount: number, daysAgo: number, description = ''): Charge {
-  return { id: SAMPLE_PREFIX + billNo, billNo, category, description, amount: String(amount), date: addDays(todayStr(), -daysAgo) };
+  return { id: SAMPLE_PREFIX + billNo, chargeNo: '', billNo, category, description, amount: String(amount), date: addDays(todayStr(), -daysAgo) };
 }
 
 const FIRST = ['Aarav', 'Vivaan', 'Diya', 'Ishaan', 'Meera', 'Kabir', 'Saanvi', 'Rohan', 'Aditi', 'Vikram', 'Neha', 'Siddharth',
@@ -71,7 +71,7 @@ function fillerGuests(taken: Set<string>): Guest[] {
       companions: k % 2 ? [indian(`${FIRST[(k + 5) % FIRST.length]} ${LAST[(k * 7) % LAST.length]}`, '', '', 'Aadhaar', '')] : [],
       checkInDate: addDays(t, -(leftToday ? Math.max(1, inDaysAgo) : inDaysAgo)), checkInTime: '13:00',
       checkOutDate: leftToday ? t : addDays(t, nights - inDaysAgo), checkOutTime: '11:00',
-      ...(leftToday ? { checkedOutAt: new Date().toISOString(), invoiceNo: `SAMPLE-1${k}`, finalPayment: { amount: 0, mode: 'Cash' as const } } : {}),
+      ...(leftToday ? { checkedOutAt: new Date().toISOString(), finalPayment: { amount: 0, mode: 'Cash' as const } } : {}),
     });
   });
   // Guests who left today settled their bill in full
@@ -165,7 +165,6 @@ function mainSampleGuests(): Guest[] {
       charges: [bill('R-1022', 'Food', 450, 2)],
       createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
       checkedOutAt: new Date(Date.now() - 86_400_000).toISOString(),
-      invoiceNo: 'SAMPLE-0001',
       finalPayment: { amount: 2450, mode: 'UPI' },
     },
   ];

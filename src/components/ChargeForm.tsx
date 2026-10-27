@@ -5,9 +5,10 @@ import { newId } from '../storage';
 import { Field, Segmented } from './ui';
 import { todayStr } from '../utils';
 
-const blank = (): Charge => ({ id: newId(), billNo: '', category: 'Food', description: '', amount: '', date: todayStr() });
+const blank = (): Charge => ({ id: newId(), chargeNo: '', billNo: '', category: 'Food', description: '', amount: '', date: todayStr() });
 
-// The bill entry form: bill number, amount, type, details. Used on the guest page and the Add Bill screen.
+// The bill entry form: amount, type, optional slip number, details. The bill gets its own ID
+// (e.g. HSL000001-02) when it is added to the stay. Used on the guest page and the Add Bill screen.
 export function ChargeForm({
   existingBillNos, onAdd, onCancel, submitLabel = 'Add to bill',
 }: {
@@ -22,8 +23,7 @@ export function ChargeForm({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const errs: Record<string, string> = {};
-    if (!c.billNo.trim()) errs.billNo = 'Enter the bill number';
-    else if (existingBillNos.includes(c.billNo.trim().toLowerCase())) errs.billNo = 'This bill is already added';
+    if (c.billNo.trim() && existingBillNos.includes(c.billNo.trim().toLowerCase())) errs.billNo = 'A bill with this slip number is already added';
     if (!(Number(c.amount) > 0)) errs.amount = 'Enter the amount';
     setErrors(errs);
     if (Object.keys(errs).length) return;
@@ -34,11 +34,11 @@ export function ChargeForm({
   return (
     <form className="form add-charge no-print" onSubmit={submit} noValidate>
       <div className="grid">
-        <Field label="Bill number" required error={errors.billNo}>
-          <input value={c.billNo} onChange={(e) => setC({ ...c, billNo: e.target.value.toUpperCase() })} autoFocus autoComplete="off" />
-        </Field>
         <Field label="Amount (₹)" required error={errors.amount}>
-          <input inputMode="decimal" value={c.amount} onChange={(e) => setC({ ...c, amount: e.target.value.replace(/[^\d.]/g, '') })} />
+          <input inputMode="decimal" value={c.amount} onChange={(e) => setC({ ...c, amount: e.target.value.replace(/[^\d.]/g, '') })} autoFocus />
+        </Field>
+        <Field label="Slip / KOT no." hint="Optional" error={errors.billNo}>
+          <input value={c.billNo} onChange={(e) => setC({ ...c, billNo: e.target.value.toUpperCase() })} autoComplete="off" />
         </Field>
         <Field label="Date">
           <input type="date" value={c.date} onChange={(e) => setC({ ...c, date: e.target.value })} />

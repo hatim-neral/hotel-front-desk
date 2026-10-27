@@ -134,12 +134,7 @@ export default function CheckInForm({
       passportNumber: g.passportNumber.trim().toUpperCase(),
       companions: g.companions.map((c) => ({ ...c, name: c.name.trim(), idNumber: c.idNumber.replace(/\s/g, '').toUpperCase() })),
     };
-    let returning = false;
-    if (!clean.guestNo) {
-      const assigned = await assignGuestNo(clean);
-      clean.guestNo = assigned.guestNo;
-      returning = assigned.returning;
-    }
+    if (!clean.guestNo) clean.guestNo = await assignGuestNo();
     await Promise.all(Object.entries(newPhotos).filter(([id]) => g.idPhotos.includes(id)).map(([id, url]) => savePhoto(id, url)));
     await Promise.all((existing?.idPhotos ?? []).filter((id) => !g.idPhotos.includes(id)).map(deletePhoto));
     await saveGuest(clean);
@@ -149,7 +144,7 @@ export default function CheckInForm({
     onSaved(
       existing
         ? 'Guest details updated'
-        : `${clean.fullName} (${clean.guestNo}${returning ? ', returning guest' : ''}) checked in to room ${clean.roomNumber}`,
+        : `${clean.fullName} checked in to room ${clean.roomNumber} — bill ${clean.guestNo} opened`,
     );
     go(`guest/${clean.id}`);
   };

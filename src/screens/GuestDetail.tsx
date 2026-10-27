@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import type { Charge, Guest, PaymentMode, Settings } from '../types';
 import { PAYMENT_MODES } from '../types';
-import { deleteGuest, saveGuest, takeInvoiceNumber, updateRoom } from '../storage';
+import { deleteGuest, saveGuest, updateRoom } from '../storage';
 import { Field, Segmented, StatusBadge } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
 import { AddCharge } from '../components/ChargeForm';
 import {
-  billFor, formatAadhaar, formatDate, formatTime, go, isDueOutToday, maskId, nowTime, rupees, todayStr,
+  billFor, withCharge, formatAadhaar, formatDate, formatTime, go, isDueOutToday, maskId, nowTime, rupees, todayStr,
 } from '../utils';
 
 export default function GuestDetail({
@@ -40,12 +40,11 @@ export default function GuestDetail({
       checkOutDate: todayStr(),
       checkOutTime: nowTime(),
       checkedOutAt: new Date().toISOString(),
-      invoiceNo: await takeInvoiceNumber(),
       finalPayment: { amount: bill.balance, mode: payMode },
     });
     await updateRoom(g.roomNumber, { housekeeping: 'dirty' }); // room needs cleaning before the next guest
     setConfirmOut(false);
-    onChanged(`${g.fullName} checked out of room ${g.roomNumber}`);
+    onChanged(`${g.fullName} checked out of room ${g.roomNumber} — bill ${g.guestNo} closed`);
   };
 
   const remove = async () => {
@@ -90,7 +89,7 @@ export default function GuestDetail({
       <div className="print-only print-head">
         <h2>{settings.hotelName}</h2>
         {settings.hotelAddress && <p>{settings.hotelAddress}</p>}
-        <h3>{g.invoiceNo ? `Invoice ${g.invoiceNo}` : 'Guest Registration Card'}</h3>
+        <h3>{inHouse ? 'Guest Registration Card' : `Bill ${g.guestNo}`}</h3>
       </div>
 
       <div className="detail-head">
@@ -99,7 +98,6 @@ export default function GuestDetail({
           <h1>{g.fullName}</h1>
           <span className="guest-no">{g.guestNo}</span>
           <StatusBadge status={g.status} dueOut={isDueOutToday(g)} />
-          {g.invoiceNo && <span className="muted"> · Invoice {g.invoiceNo}</span>}
         </div>
       </div>
 
@@ -158,12 +156,14 @@ export default function GuestDetail({
       )}
 
       <section className="card">
-        <h2 className="card-title">Bill</h2>
+        <h2 className="card-title">
+          Bill {g.guestNo} <span className={`badge ${inHouse ? 'badge-in' : 'badge-out'}`}>{inHouse ? 'Open' : 'Closed'}</span>
+        </h2>
         <table className="bill">
           <thead>
             <tr>
               <th>Date</th>
-              <th>Bill no.</th>
+              <th>Bill ID</th>
               <th>Item</th>
               <th className="num">Amount</th>
               {inHouse && <th className="no-print" />}
@@ -172,7 +172,7 @@ export default function GuestDetail({
           <tbody>
             <tr>
               <td>{formatDate(g.checkInDate)}</td>
-              <td>—</td>
+              <td className="mono">{g.guestNo}</td>
               <td>
                 Room {g.roomNumber}: {bill.nights} night{bill.nights > 1 && 's'} × {rupees(Number(g.ratePerNight) || 0)}
                 {inHouse && <span className="muted"> (so far)</span>}
@@ -183,10 +183,11 @@ export default function GuestDetail({
             {g.charges.map((c) => (
               <tr key={c.id}>
                 <td>{formatDate(c.date)}</td>
-                <td className="mono">{c.billNo}</td>
+                <td className="mono">{c.chargeNo}</td>
                 <td>
                   {c.category}
                   {c.description && <span className="muted"> — {c.description}</span>}
+                  {c.billNo && <span className="muted"> · slip {c.billNo}</span>}
                 </td>
                 <td className="num">{rupees(Number(c.amount))}</td>
                 {inHouse && (
@@ -194,8 +195,8 @@ export default function GuestDetail({
                     <button
                       className="link danger-text"
                       onClick={() =>
-                        confirm(`Remove bill ${c.billNo} (${rupees(Number(c.amount))})?`) &&
-                        saveCharges(g.charges.filter((x) => x.id !== c.id), `Bill ${c.billNo} removed`)
+                        confirm(`Remove bill ${c.chargeNo} (${rupees(Number(c.amount))})?`) &&
+                        saveCharges(g.charges.filter((x) => x.id !== c.id), `Bill ${c.chargeNo} removed`)
                       }
                     >
                       Remove
@@ -208,8 +209,12 @@ export default function GuestDetail({
         </table>
         {inHouse && (
           <AddCharge
-            existingBillNos={g.charges.map((c) => c.billNo.toLowerCase())}
-            onAdd={(c) => saveCharges([...g.charges, c], `Bill ${c.billNo} added — ${rupees(Number(c.amount))}`)}
+            existingBillNos={g.charges.map((c) => c.billNo.toLowerCase()).filter(Boolean)}
+            onAdd={(c) => {
+              const updated = withCharge(g, c);
+              const added = updated.charges[updated.charges.length - 1];
+              saveCharges(updated.charges, `Bill ${added.chargeNo} added — ${rupees(Number(c.amount))}`);
+            }}
           />
         )}
         <BillSummary bill={bill} paymentMode={g.paymentMode} finalMode={g.finalPayment?.mode} />
@@ -265,7 +270,7 @@ export default function GuestDetail({
 
       <div className="actions no-print">
         <a className="btn" href={`#/edit/${g.id}`}>Edit details</a>
-        <button className="btn" onClick={() => window.print()}>{g.invoiceNo ? 'Print invoice' : 'Print registration card'}</button>
+        <button className="btn" onClick={() => window.print()}>{inHouse ? 'Print registration card' : 'Print bill'}</button>
         <button className="btn btn-ghost danger-text" onClick={remove}>Delete record</button>
       </div>
     </div>

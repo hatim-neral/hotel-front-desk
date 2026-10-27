@@ -1,4 +1,4 @@
-import type { Guest } from './types';
+import type { Charge, Guest } from './types';
 
 export function go(path: string) {
   location.hash = '#/' + path;
@@ -91,7 +91,7 @@ export function toCsv(guests: Guest[]): string {
     'address', 'city', 'state', 'addressCountry', 'pincode', 'purpose',
     'arrivingFrom', 'goingTo', 'vehicleNumber', 'roomNumber', 'roomType', 'adults',
     'children', 'checkInDate', 'checkInTime', 'checkOutDate', 'checkOutTime',
-    'ratePerNight', 'advancePaid', 'paymentMode', 'status', 'checkedOutAt', 'invoiceNo', 'remarks',
+    'ratePerNight', 'advancePaid', 'paymentMode', 'status', 'checkedOutAt', 'remarks',
   ];
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = guests.map((g) => {
@@ -99,11 +99,17 @@ export function toCsv(guests: Guest[]): string {
     return [
       ...cols.map((c) => esc(g[c])),
       esc(g.companions.map((c) => `${c.name} (${c.nationality === 'Foreign' ? `${c.country}, Passport` : c.idType} ${c.idNumber})`).join('; ')),
-      esc(g.charges.map((c) => `#${c.billNo} ${c.category} ₹${c.amount}`).join('; ')),
+      esc(g.charges.map((c) => `${c.chargeNo} ${c.category} ₹${c.amount}${c.billNo ? ` (slip ${c.billNo})` : ''}`).join('; ')),
       b.extras, b.total, b.balance,
     ].join(',');
   });
   return [[...cols, 'companions', 'bills', 'extrasTotal', 'grandTotal', 'balance'].join(','), ...rows].join('\n');
+}
+
+// Adds a bill to an open stay, giving it the next child ID: HSL000001-01, HSL000001-02, ...
+export function withCharge(g: Guest, c: Charge): Guest {
+  const last = Math.max(0, ...g.charges.map((x) => Number(x.chargeNo.split('-').pop()) || 0));
+  return { ...g, charges: [...g.charges, { ...c, chargeNo: `${g.guestNo}-${String(last + 1).padStart(2, '0')}` }] };
 }
 
 export function rupees(n: number): string {

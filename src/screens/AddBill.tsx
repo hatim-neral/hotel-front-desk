@@ -2,10 +2,10 @@ import { useRef, useState } from 'react';
 import type { Charge, Guest } from '../types';
 import { saveGuest } from '../storage';
 import { ChargeForm } from '../components/ChargeForm';
-import { billFor, formatDate, matchesSearch, rupees } from '../utils';
+import { billFor, formatDate, matchesSearch, rupees, withCharge } from '../utils';
 
 // Put a bill (food, laundry…) on an in-house guest's account, found by room number,
-// guest ID (HSL…), phone, name or ID document number.
+// bill ID (HSL…), phone, name or ID document number.
 export default function AddBill({
   guests, guestId, onChanged,
 }: {
@@ -22,7 +22,7 @@ export default function AddBill({
   const query = q.trim().toLowerCase();
   const matches = query ? inHouse.filter((g) => matchesSearch(g, query)) : [];
 
-  // An exact room number, guest ID or full phone number picks the guest straight away
+  // An exact room number, bill ID or full phone number picks the guest straight away
   const exact = query
     ? inHouse.find(
         (g) =>
@@ -32,10 +32,14 @@ export default function AddBill({
       )
     : undefined;
   const guest = inHouse.find((g) => g.id === chosenId) ?? exact;
+  // A bill ID retires at check-out: say so instead of "not found"
+  const closed = !exact ? guests.find((g) => g.status === 'out' && g.guestNo.toLowerCase() === query) : undefined;
 
   const add = async (g: Guest, c: Charge) => {
-    await saveGuest({ ...g, charges: [...g.charges, c] });
-    const msg = `Bill ${c.billNo} (${rupees(Number(c.amount))}) added to Room ${g.roomNumber} — ${g.fullName}`;
+    const updated = withCharge(g, c);
+    await saveGuest(updated);
+    const added = updated.charges[updated.charges.length - 1];
+    const msg = `${added.chargeNo} (${rupees(Number(c.amount))}) added to bill ${g.guestNo} — Room ${g.roomNumber}, ${g.fullName}`;
     setLastAdded(msg);
     onChanged(msg);
     // Ready for the next bill
@@ -65,7 +69,7 @@ export default function AddBill({
             <input
               ref={search}
               className="search"
-              placeholder="Room no., guest ID (HSL…), phone or name"
+              placeholder="Room no., bill ID (HSL…), phone or name"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && matches[0] && setChosenId(matches[0].id)}
@@ -73,7 +77,13 @@ export default function AddBill({
               autoComplete="off"
             />
           </div>
-          {query && !matches.length && <p className="muted">No in-house guest matches “{q}”.</p>}
+          {closed && (
+            <p className="closed-note">
+              Bill {closed.guestNo} is closed — {closed.fullName} checked out of Room {closed.roomNumber} on {formatDate(closed.checkOutDate)}.
+              No more bills can be added to it.
+            </p>
+          )}
+          {query && !matches.length && !closed && <p className="muted">No in-house guest matches “{q}”.</p>}
           {matches.length > 0 && (
             <div className="quick-results">
               {matches.slice(0, 8).map((g) => (
@@ -108,7 +118,7 @@ export default function AddBill({
           </section>
           <ChargeForm
             key={guest.id}
-            existingBillNos={guest.charges.map((c) => c.billNo.toLowerCase())}
+            existingBillNos={guest.charges.map((c) => c.billNo.toLowerCase()).filter(Boolean)}
             onAdd={(c) => add(guest, c)}
             onCancel={reset}
             submitLabel={`Add to Room ${guest.roomNumber}`}

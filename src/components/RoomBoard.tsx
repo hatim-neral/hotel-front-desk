@@ -159,7 +159,7 @@ export function RoomDrawer({
       {guest ? (
         <dl className="drawer-facts">
           <div><dt>Guest</dt><dd><a href={`#/guest/${guest.id}`}>{guest.fullName}</a></dd></div>
-          <div><dt>Guest ID</dt><dd>{guest.guestNo}</dd></div>
+          <div><dt>Bill ID</dt><dd>{guest.guestNo}</dd></div>
           <div><dt>Mobile</dt><dd>{guest.phone}</dd></div>
           <div><dt>People</dt><dd>{guest.adults} adult(s){guest.children ? `, ${guest.children} child(ren)` : ''}</dd></div>
           <div><dt>In</dt><dd>{formatDate(guest.checkInDate)} {formatTime(guest.checkInTime)}</dd></div>

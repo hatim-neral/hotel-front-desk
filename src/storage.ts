@@ -16,8 +16,6 @@ export const DEFAULT_SETTINGS: Settings = {
     { name: 'Deluxe', rate: '2500' },
     { name: 'Suite', rate: '4500' },
   ],
-  invoicePrefix: 'INV-',
-  nextInvoiceNo: 1,
   nextGuestNo: 1,
 };
 
@@ -25,11 +23,7 @@ export const GUEST_ID_PREFIX = 'HSL';
 const formatGuestNo = (n: number) => GUEST_ID_PREFIX + String(n).padStart(6, '0');
 const guestNoValue = (no: string) => Number(no.slice(GUEST_ID_PREFIX.length)) || 0;
 
-// Identifies the same person across stays: their ID document number.
-export function customerKey(g: Guest): string {
-  const doc = g.nationality === 'Foreign' ? `PASSPORT:${g.passportNumber}` : `${g.idType}:${g.idNumber}`;
-  return doc.split(':')[1].replace(/\s/g, '') ? doc.replace(/\s/g, '').toUpperCase() : '';
-}
+
 
 function readGuests(): Guest[] {
   try {
@@ -45,7 +39,8 @@ function readGuests(): Guest[] {
       return {
         ...guestDefaults,
         ...g,
-        charges: g.charges ?? [],
+        // Bills saved before bills had their own IDs get one under the stay's bill ID
+        charges: (g.charges ?? []).map((c, i) => ({ ...c, chargeNo: c.chargeNo || (g.guestNo ? `${g.guestNo}-${String(i + 1).padStart(2, '0')}` : '') })),
         idPhotos: g.idPhotos ?? [],
         companions: (g.companions ?? []).map((c) => ({ ...companionDefaults, ...c })),
       };
@@ -61,38 +56,38 @@ function writeGuests(guests: Guest[]) {
 
 export async function listGuests(): Promise<Guest[]> {
   let guests = readGuests();
-  if (guests.some((g) => !g.guestNo)) guests = await numberOldGuests(guests);
+  const ids = guests.map((g) => g.guestNo);
+  if (ids.some((id) => !id) || new Set(ids).size !== ids.length) guests = await numberOldGuests(guests);
   return guests.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-// Records made before guest IDs existed get one, oldest first; the same person gets the same ID.
+// Every stay needs its own bill ID. Records without one (or sharing one, from an earlier version
+// that reused IDs for returning guests) get the next numbers, oldest first.
 async function numberOldGuests(guests: Guest[]): Promise<Guest[]> {
   const s = await loadSettings();
   let next = Math.max(s.nextGuestNo, ...guests.map((g) => guestNoValue(g.guestNo) + 1));
-  const byCustomer = new Map(guests.filter((g) => g.guestNo).map((g) => [customerKey(g), g.guestNo]));
+  const used = new Set<string>();
   const numbered = [...guests]
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
     .map((g) => {
-      if (g.guestNo) return g;
-      const key = customerKey(g);
-      const guestNo = (key && byCustomer.get(key)) || formatGuestNo(next++);
-      if (key) byCustomer.set(key, guestNo);
-      return { ...g, guestNo };
+      if (g.guestNo && !used.has(g.guestNo)) {
+        used.add(g.guestNo);
+        return g;
+      }
+      const guestNo = formatGuestNo(next++);
+      used.add(guestNo);
+      return { ...g, guestNo, charges: g.charges.map((c, i) => ({ ...c, chargeNo: `${guestNo}-${String(i + 1).padStart(2, '0')}` })) };
     });
   writeGuests(numbered);
   await saveSettings({ ...s, nextGuestNo: next });
   return numbered;
 }
 
-// The guest ID for a new check-in: a returning customer (same ID document) keeps their ID,
-// anyone else gets the next number.
-export async function assignGuestNo(guest: Guest): Promise<{ guestNo: string; returning: boolean }> {
-  const key = customerKey(guest);
-  const previous = key ? readGuests().find((g) => g.id !== guest.id && g.guestNo && customerKey(g) === key) : undefined;
-  if (previous) return { guestNo: previous.guestNo, returning: true };
+// A new bill ID for a check-in. Numbers are never reused, even after the guest checks out.
+export async function assignGuestNo(): Promise<string> {
   const s = await loadSettings();
   await saveSettings({ ...s, nextGuestNo: s.nextGuestNo + 1 });
-  return { guestNo: formatGuestNo(s.nextGuestNo), returning: false };
+  return formatGuestNo(s.nextGuestNo);
 }
 
 // After removing guests (e.g. practice samples), continue numbering from the highest ID still in use.
@@ -118,13 +113,6 @@ export async function deleteGuest(id: string): Promise<void> {
   const guest = readGuests().find((g) => g.id === id);
   await Promise.all((guest?.idPhotos ?? []).map(deletePhoto));
   writeGuests(readGuests().filter((g) => g.id !== id));
-}
-
-// Takes the next invoice number from settings and advances the counter.
-export async function takeInvoiceNumber(): Promise<string> {
-  const s = await loadSettings();
-  await saveSettings({ ...s, nextInvoiceNo: s.nextInvoiceNo + 1 });
-  return s.invoicePrefix + String(s.nextInvoiceNo).padStart(4, '0');
 }
 
 // ID photos are stored in IndexedDB (as JPEG data URLs) because localStorage is too small for images.

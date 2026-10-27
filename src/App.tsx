@@ -102,7 +102,7 @@ export default function App() {
       break;
     case 'checkout':
       screen = param ? (
-        <GuestDetail key={param} guest={guests.find((g) => g.id === param)} settings={settings} onChanged={notify} startCheckout />
+        <GuestDetail key={`checkout-${param}`} guest={guests.find((g) => g.id === param)} settings={settings} onChanged={notify} startCheckout />
       ) : (
         <CheckOutList guests={guests} />
       );

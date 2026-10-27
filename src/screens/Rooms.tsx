@@ -82,7 +82,7 @@ export default function Rooms({
             ref={search}
             className="search"
             type="search"
-            placeholder="Room number, guest name or guest ID (HSL…)"
+            placeholder="Room number, guest name or bill ID (HSL…)"
             value={q}
             onChange={(e) => {
               setQ(e.target.value);

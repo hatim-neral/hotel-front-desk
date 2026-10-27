@@ -232,6 +232,10 @@ button.quick-result { width: 100%; border: none; background: none; font: inherit
   background: var(--surface); border: 1px solid var(--border);
 }
 .bill-guest-name { font-size: 1.2rem; }
+.closed-note {
+  margin: 0; padding: 12px 14px; border-radius: 10px;
+  background: var(--neutral-bg); border: 1px solid var(--border-strong); color: var(--muted);
+}
 
 /* Room-state colour helpers: each sets --s for whatever uses it */
 .rs-available { --s: var(--s-free); }

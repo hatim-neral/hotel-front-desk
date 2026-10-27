@@ -32,7 +32,8 @@ export default function SettingsScreen({
     );
     for (const g of samples) {
       const previousNo = guests.find((x) => x.id === g.id)?.guestNo; // resetting keeps the same IDs
-      await saveGuest({ ...g, guestNo: previousNo || (await assignGuestNo(g)).guestNo });
+      const guestNo = previousNo || (await assignGuestNo());
+      await saveGuest({ ...g, guestNo, charges: g.charges.map((c, i) => ({ ...c, chargeNo: `${guestNo}-${String(i + 1).padStart(2, '0')}` })) });
     }
     // The sample guest who checked out yesterday left their room for cleaning
     for (const g of samples.filter((x) => x.status === 'out')) await updateRoom(g.roomNumber, { housekeeping: 'dirty' });
@@ -68,16 +69,6 @@ export default function SettingsScreen({
           </Field>
           <Field label="Default check-out time">
             <input type="time" value={s.defaultCheckOutTime} onChange={(e) => setS({ ...s, defaultCheckOutTime: e.target.value })} />
-          </Field>
-          <Field label="Invoice number prefix">
-            <input value={s.invoicePrefix} onChange={(e) => setS({ ...s, invoicePrefix: e.target.value })} />
-          </Field>
-          <Field label="Next invoice number" hint={`Next invoice: ${s.invoicePrefix}${String(s.nextInvoiceNo).padStart(4, '0')}`}>
-            <input
-              inputMode="numeric"
-              value={s.nextInvoiceNo}
-              onChange={(e) => setS({ ...s, nextInvoiceNo: Math.max(1, Number(e.target.value.replace(/\D/g, '')) || 1) })}
-            />
           </Field>
           <div className="wide">
             <button type="submit" className="btn btn-primary">Save hotel details</button>

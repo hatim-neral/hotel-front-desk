@@ -9,10 +9,11 @@ export const PAYMENT_MODES: PaymentMode[] = ['Cash', 'UPI', 'Card', 'Bank Transf
 export const PURPOSES = ['Tourism', 'Business', 'Family / Personal', 'Medical', 'Pilgrimage', 'Other'];
 export const CHARGE_CATEGORIES = ['Food', 'Room Service', 'Laundry', 'Minibar', 'Extra Bed', 'Other'];
 
-// An extra bill added to the guest's account during the stay (food, laundry, etc.)
+// An extra bill added to the stay's account (food, laundry, etc.)
 export interface Charge {
   id: string;
-  billNo: string;
+  chargeNo: string; // child of the stay's bill ID, e.g. HSL000001-02
+  billNo: string; // optional slip / KOT number from the restaurant or laundry
   category: string;
   description: string;
   amount: string;
@@ -36,7 +37,7 @@ export interface Companion {
 
 export interface Guest {
   id: string;
-  guestNo: string; // customer ID shown to staff, e.g. HSL000001; a returning customer keeps theirs
+  guestNo: string; // bill ID for this stay, e.g. HSL000001; every check-in gets a new one, retired at check-out
   status: 'in' | 'out';
 
   // Guest
@@ -100,7 +101,6 @@ export interface Guest {
   remarks: string;
   createdAt: string; // ISO
   checkedOutAt?: string; // ISO, set on actual check-out
-  invoiceNo?: string; // set on check-out
   finalPayment?: { amount: number; mode: PaymentMode }; // collected (+) or refunded (−) at check-out
 }
 
@@ -122,7 +122,5 @@ export interface Settings {
   hotelAddress: string;
   defaultCheckOutTime: string;
   roomTypes: RoomType[];
-  invoicePrefix: string;
-  nextInvoiceNo: number;
   nextGuestNo: number;
 }
