@@ -1,5 +1,6 @@
 import type { Guest } from '../types';
 import { StatusBadge } from '../components/ui';
+import { isSample } from '../sampleData';
 import { formatDate, formatTime, guestIdLabel, isDueOutToday, maskId } from '../utils';
 
 export default function GuestRows({ guests }: { guests: Guest[] }) {
@@ -13,7 +14,7 @@ export default function GuestRows({ guests }: { guests: Guest[] }) {
             <a className="row" href={`#/guest/${g.id}`}>
               <span className="room">{g.roomNumber}</span>
               <span className="row-main">
-                <strong>{g.fullName}</strong>
+                <strong>{g.fullName}{isSample(g) && <span className="badge badge-sample">Sample</span>}</strong>
                 <span className="muted">
                   {g.phone} · {idName} {maskId(idRest.join(' '))}
                   {g.adults + g.children > 1 && ` · ${g.adults + g.children} guests`}

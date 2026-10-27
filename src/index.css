@@ -199,6 +199,7 @@ a { color: var(--primary); }
 .badge { padding: 4px 10px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; white-space: nowrap; }
 .badge-in { background: var(--ok-bg); color: var(--ok); }
 .badge-due { background: var(--warn-bg); color: var(--warn); }
+.badge-sample { margin-left: 8px; background: var(--primary-soft); color: var(--primary); font-size: 0.72rem; vertical-align: middle; }
 .badge-out { background: var(--neutral-bg); color: var(--muted); }
 
 /* Detail */
