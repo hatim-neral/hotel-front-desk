@@ -183,6 +183,55 @@ a:hover { text-decoration: underline; }
 .quick-result { display: flex; align-items: center; gap: 12px; padding: 8px 12px; color: var(--text); }
 .quick-result + .quick-result { border-top: 1px solid var(--border); }
 .quick-result:hover { background: var(--hover); }
+button.quick-result { width: 100%; border: none; background: none; font: inherit; text-align: left; cursor: pointer; }
+
+/* Home: the three main jobs, then four numbers */
+.main-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.action-tile {
+  --a: var(--primary);
+  display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  transition: border-color 0.12s, transform 0.08s, box-shadow 0.12s;
+}
+.action-tile:hover { text-decoration: none; border-color: var(--a); box-shadow: 0 6px 20px var(--shadow); transform: translateY(-1px); }
+.action-tile strong { display: block; font-size: 1.15rem; }
+.action-tile .muted { font-size: 0.88rem; }
+.action-icon {
+  width: 46px; height: 46px; flex: none; border-radius: 12px; display: grid; place-items: center;
+  background: var(--a); color: #fff; font-size: 1.35rem; font-weight: 700;
+}
+.action-in { --a: var(--primary); }
+.action-bill { --a: var(--gold); }
+.action-out { --a: var(--danger); }
+
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.kpi {
+  display: flex; flex-direction: column; gap: 2px; padding: 16px 18px; border-radius: var(--radius); color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--s);
+}
+.kpi:hover { text-decoration: none; border-color: color-mix(in srgb, var(--s) 50%, var(--border)); border-top-color: var(--s); }
+.kpi-num { font-size: 2.1rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.kpi-of { font-size: 1rem; color: var(--muted); font-weight: 600; }
+.kpi-label { font-weight: 600; }
+.kpi-sub { font-size: 0.82rem; color: var(--muted); }
+
+.guest-no {
+  display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 6px; vertical-align: middle;
+  font: 600 0.82rem ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 0.04em;
+  background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--muted);
+}
+
+/* Add Bill */
+.narrow { max-width: 760px; margin: 0 auto; width: 100%; }
+.last-added {
+  margin: 0; padding: 10px 14px; border-radius: 10px; font-weight: 600;
+  background: var(--ok-bg); color: var(--ok); border: 1px solid color-mix(in srgb, var(--s-free) 35%, var(--border));
+}
+.bill-guest {
+  display: flex; gap: 14px; align-items: center; padding: 16px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.bill-guest-name { font-size: 1.2rem; }
 
 /* Room-state colour helpers: each sets --s for whatever uses it */
 .rs-available { --s: var(--s-free); }
@@ -463,6 +512,9 @@ a:hover { text-decoration: underline; }
 }
 
 @media (max-width: 760px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .main-actions { grid-template-columns: 1fr; gap: 8px; }
+  .action-tile { padding: 12px 16px; }
   .floor-rooms { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .state-chips { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .tile { height: 50px; }

@@ -77,6 +77,7 @@ export function matchesSearch(g: Guest, q: string): boolean {
     g.fullName.toLowerCase().includes(s) ||
     g.phone.includes(digits) ||
     g.roomNumber.toLowerCase() === s ||
+    g.guestNo.toLowerCase().includes(s) ||
     g.idNumber.replace(/\s/g, '').toLowerCase().includes(digits) ||
     g.passportNumber.toLowerCase().includes(s)
   );
@@ -84,7 +85,7 @@ export function matchesSearch(g: Guest, q: string): boolean {
 
 export function toCsv(guests: Guest[]): string {
   const cols: (keyof Guest)[] = [
-    'fullName', 'phone', 'email', 'gender', 'dob', 'nationality', 'country',
+    'guestNo', 'fullName', 'phone', 'email', 'gender', 'dob', 'nationality', 'country',
     'idType', 'idNumber', 'passportNumber', 'passportIssueDate', 'passportExpiry', 'passportPlaceOfIssue',
     'visaNumber', 'visaType', 'visaIssueDate', 'visaPlaceOfIssue', 'visaExpiry', 'arrivalInIndia',
     'address', 'city', 'state', 'addressCountry', 'pincode', 'purpose',

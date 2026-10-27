@@ -36,6 +36,7 @@ export interface Companion {
 
 export interface Guest {
   id: string;
+  guestNo: string; // customer ID shown to staff, e.g. HSL000001; a returning customer keeps theirs
   status: 'in' | 'out';
 
   // Guest
@@ -123,4 +124,5 @@ export interface Settings {
   roomTypes: RoomType[];
   invoicePrefix: string;
   nextInvoiceNo: number;
+  nextGuestNo: number;
 }

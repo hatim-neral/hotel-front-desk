@@ -19,7 +19,7 @@ export default function CheckOutList({ guests }: { guests: Guest[] }) {
       <input
         className="search"
         type="search"
-        placeholder="Type room number or guest name…"
+        placeholder="Room number, guest ID (HSL…), phone or name…"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         autoFocus
@@ -36,7 +36,7 @@ export default function CheckOutList({ guests }: { guests: Guest[] }) {
                     <span className="row-main">
                       <strong>{g.fullName}</strong>
                       <span className="muted">
-                        {g.checkOutDate ? `Due out ${formatWhen(g.checkOutDate, g.checkOutTime)}` : 'Check-out date not set'}
+                        {g.guestNo} · {g.checkOutDate ? `Due out ${formatWhen(g.checkOutDate, g.checkOutTime)}` : 'Check-out date not set'}
                       </span>
                     </span>
                     <span className="row-dates">

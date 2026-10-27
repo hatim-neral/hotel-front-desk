@@ -159,6 +159,7 @@ export function RoomDrawer({
       {guest ? (
         <dl className="drawer-facts">
           <div><dt>Guest</dt><dd><a href={`#/guest/${guest.id}`}>{guest.fullName}</a></dd></div>
+          <div><dt>Guest ID</dt><dd>{guest.guestNo}</dd></div>
           <div><dt>Mobile</dt><dd>{guest.phone}</dd></div>
           <div><dt>People</dt><dd>{guest.adults} adult(s){guest.children ? `, ${guest.children} child(ren)` : ''}</dd></div>
           <div><dt>In</dt><dd>{formatDate(guest.checkInDate)} {formatTime(guest.checkInTime)}</dd></div>
@@ -191,6 +192,7 @@ export function RoomDrawer({
         {!guest && state === 'dirty' && (
           <a className="btn btn-block" href={`#/checkin/${encodeURIComponent(room.number)}`}>Check in anyway</a>
         )}
+        {guest && <a className="btn btn-primary btn-block" href={`#/bill/${guest.id}`}>+ Add bill</a>}
         {guest && <a className="btn btn-block" href={`#/guest/${guest.id}`}>Guest details & bill</a>}
         <div className="drawer-minor">
           {room.housekeeping === 'clean' && (

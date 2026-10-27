@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Guest, Room, RoomType, Settings } from '../types';
-import { deleteGuest, saveGuest, saveRooms, saveSettings, updateRoom } from '../storage';
+import { assignGuestNo, deleteGuest, resetGuestCounter, saveGuest, saveRooms, saveSettings, updateRoom } from '../storage';
 import { buildSampleGuests, isSample } from '../sampleData';
 import { findRoom } from '../rooms';
 import { Field, Section } from '../components/ui';
@@ -30,7 +30,10 @@ export default function SettingsScreen({
     const samples = buildSampleGuests().filter(
       (g) => findRoom(rooms, g.roomNumber) && (g.status === 'out' || !taken.has(g.roomNumber.toLowerCase())),
     );
-    for (const g of samples) await saveGuest(g);
+    for (const g of samples) {
+      const previousNo = guests.find((x) => x.id === g.id)?.guestNo; // resetting keeps the same IDs
+      await saveGuest({ ...g, guestNo: previousNo || (await assignGuestNo(g)).guestNo });
+    }
     // The sample guest who checked out yesterday left their room for cleaning
     for (const g of samples.filter((x) => x.status === 'out')) await updateRoom(g.roomNumber, { housekeeping: 'dirty' });
     onSaved(`${samples.length} sample guests added`);
@@ -38,6 +41,7 @@ export default function SettingsScreen({
 
   const removeSamples = async () => {
     for (const g of guests.filter(isSample)) await deleteGuest(g.id);
+    await resetGuestCounter();
     onSaved('Sample guests removed');
   };
 

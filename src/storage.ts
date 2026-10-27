@@ -18,7 +18,18 @@ export const DEFAULT_SETTINGS: Settings = {
   ],
   invoicePrefix: 'INV-',
   nextInvoiceNo: 1,
+  nextGuestNo: 1,
 };
+
+export const GUEST_ID_PREFIX = 'HSL';
+const formatGuestNo = (n: number) => GUEST_ID_PREFIX + String(n).padStart(6, '0');
+const guestNoValue = (no: string) => Number(no.slice(GUEST_ID_PREFIX.length)) || 0;
+
+// Identifies the same person across stays: their ID document number.
+export function customerKey(g: Guest): string {
+  const doc = g.nationality === 'Foreign' ? `PASSPORT:${g.passportNumber}` : `${g.idType}:${g.idNumber}`;
+  return doc.split(':')[1].replace(/\s/g, '') ? doc.replace(/\s/g, '').toUpperCase() : '';
+}
 
 function readGuests(): Guest[] {
   try {
@@ -28,6 +39,7 @@ function readGuests(): Guest[] {
       const guestDefaults = {
         passportIssueDate: '', passportPlaceOfIssue: '', visaIssueDate: '', visaPlaceOfIssue: '',
         addressCountry: g.nationality === 'Foreign' ? g.country : 'India',
+        guestNo: '',
       };
       const companionDefaults = { nationality: g.nationality, country: g.country, passportExpiry: '', visaNumber: '', visaExpiry: '' };
       return {
@@ -48,7 +60,46 @@ function writeGuests(guests: Guest[]) {
 }
 
 export async function listGuests(): Promise<Guest[]> {
-  return readGuests().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  let guests = readGuests();
+  if (guests.some((g) => !g.guestNo)) guests = await numberOldGuests(guests);
+  return guests.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+// Records made before guest IDs existed get one, oldest first; the same person gets the same ID.
+async function numberOldGuests(guests: Guest[]): Promise<Guest[]> {
+  const s = await loadSettings();
+  let next = Math.max(s.nextGuestNo, ...guests.map((g) => guestNoValue(g.guestNo) + 1));
+  const byCustomer = new Map(guests.filter((g) => g.guestNo).map((g) => [customerKey(g), g.guestNo]));
+  const numbered = [...guests]
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map((g) => {
+      if (g.guestNo) return g;
+      const key = customerKey(g);
+      const guestNo = (key && byCustomer.get(key)) || formatGuestNo(next++);
+      if (key) byCustomer.set(key, guestNo);
+      return { ...g, guestNo };
+    });
+  writeGuests(numbered);
+  await saveSettings({ ...s, nextGuestNo: next });
+  return numbered;
+}
+
+// The guest ID for a new check-in: a returning customer (same ID document) keeps their ID,
+// anyone else gets the next number.
+export async function assignGuestNo(guest: Guest): Promise<{ guestNo: string; returning: boolean }> {
+  const key = customerKey(guest);
+  const previous = key ? readGuests().find((g) => g.id !== guest.id && g.guestNo && customerKey(g) === key) : undefined;
+  if (previous) return { guestNo: previous.guestNo, returning: true };
+  const s = await loadSettings();
+  await saveSettings({ ...s, nextGuestNo: s.nextGuestNo + 1 });
+  return { guestNo: formatGuestNo(s.nextGuestNo), returning: false };
+}
+
+// After removing guests (e.g. practice samples), continue numbering from the highest ID still in use.
+export async function resetGuestCounter(): Promise<void> {
+  const s = await loadSettings();
+  const max = Math.max(0, ...readGuests().map((g) => guestNoValue(g.guestNo)));
+  await saveSettings({ ...s, nextGuestNo: max + 1 });
 }
 
 export async function getGuest(id: string): Promise<Guest | undefined> {

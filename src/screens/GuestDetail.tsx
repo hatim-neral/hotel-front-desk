@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import type { Charge, Guest, PaymentMode, Settings } from '../types';
-import { CHARGE_CATEGORIES, PAYMENT_MODES } from '../types';
-import { deleteGuest, newId, saveGuest, takeInvoiceNumber, updateRoom } from '../storage';
+import { PAYMENT_MODES } from '../types';
+import { deleteGuest, saveGuest, takeInvoiceNumber, updateRoom } from '../storage';
 import { Field, Segmented, StatusBadge } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
+import { AddCharge } from '../components/ChargeForm';
 import {
   billFor, formatAadhaar, formatDate, formatTime, go, isDueOutToday, maskId, nowTime, rupees, todayStr,
 } from '../utils';
@@ -96,6 +97,7 @@ export default function GuestDetail({
         <div className="room room-lg">{g.roomNumber}</div>
         <div className="grow">
           <h1>{g.fullName}</h1>
+          <span className="guest-no">{g.guestNo}</span>
           <StatusBadge status={g.status} dueOut={isDueOutToday(g)} />
           {g.invoiceNo && <span className="muted"> · Invoice {g.invoiceNo}</span>}
         </div>
@@ -296,59 +298,5 @@ function BillSummary({
         <dd>{rupees(Math.abs(bill.balance))}</dd>
       </div>
     </dl>
-  );
-}
-
-function AddCharge({ existingBillNos, onAdd }: { existingBillNos: string[]; onAdd: (c: Charge) => void }) {
-  const blank = () => ({ id: newId(), billNo: '', category: 'Food', description: '', amount: '', date: todayStr() });
-  const [open, setOpen] = useState(false);
-  const [c, setC] = useState<Charge>(blank);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  if (!open) {
-    return (
-      <div className="no-print add-charge-btn">
-        <button className="btn btn-primary" onClick={() => setOpen(true)}>+ Add bill (food, laundry…)</button>
-      </div>
-    );
-  }
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const errs: Record<string, string> = {};
-    if (!c.billNo.trim()) errs.billNo = 'Enter the bill number';
-    else if (existingBillNos.includes(c.billNo.trim().toLowerCase())) errs.billNo = 'This bill is already added';
-    if (!(Number(c.amount) > 0)) errs.amount = 'Enter the amount';
-    setErrors(errs);
-    if (Object.keys(errs).length) return;
-    onAdd({ ...c, billNo: c.billNo.trim(), description: c.description.trim() });
-    setC(blank());
-    setOpen(false);
-  };
-
-  return (
-    <form className="form add-charge no-print" onSubmit={submit} noValidate>
-      <div className="grid">
-        <Field label="Bill number" required error={errors.billNo}>
-          <input value={c.billNo} onChange={(e) => setC({ ...c, billNo: e.target.value.toUpperCase() })} autoFocus />
-        </Field>
-        <Field label="Amount (₹)" required error={errors.amount}>
-          <input inputMode="decimal" value={c.amount} onChange={(e) => setC({ ...c, amount: e.target.value.replace(/[^\d.]/g, '') })} />
-        </Field>
-        <Field label="Date">
-          <input type="date" value={c.date} onChange={(e) => setC({ ...c, date: e.target.value })} />
-        </Field>
-        <Field label="Type" wide>
-          <Segmented options={CHARGE_CATEGORIES} value={c.category} onChange={(v) => setC({ ...c, category: v })} />
-        </Field>
-        <Field label="Details (optional)" wide>
-          <input value={c.description} placeholder="e.g. Dinner — 2 thali" onChange={(e) => setC({ ...c, description: e.target.value })} />
-        </Field>
-      </div>
-      <div className="actions">
-        <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>Cancel</button>
-        <button type="submit" className="btn btn-primary">Add to bill</button>
-      </div>
-    </form>
   );
 }

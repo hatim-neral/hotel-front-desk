@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Companion, Guest, IdType, Nationality, Room, Settings } from '../types';
 import { ID_TYPES, PAYMENT_MODES, PURPOSES, VISA_TYPES } from '../types';
-import { deletePhoto, newId, saveGuest, savePhoto, updateRoom } from '../storage';
+import { assignGuestNo, deletePhoto, newId, saveGuest, savePhoto, updateRoom } from '../storage';
 import { validateGuest, type Errors } from '../validation';
 import { Field, Section, Segmented } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
@@ -11,7 +11,7 @@ import { addDays, formatAadhaar, go, nightsBetween, nowTime, rupees, todayStr } 
 
 function blankGuest(settings: Settings, room?: Room): Guest {
   return {
-    id: newId(), status: 'in',
+    id: newId(), guestNo: '', status: 'in',
     fullName: '', phone: '', email: '', gender: '', dob: '',
     nationality: 'Indian', country: 'India',
     idType: 'Aadhaar', idNumber: '', idPhotos: [],
@@ -134,13 +134,23 @@ export default function CheckInForm({
       passportNumber: g.passportNumber.trim().toUpperCase(),
       companions: g.companions.map((c) => ({ ...c, name: c.name.trim(), idNumber: c.idNumber.replace(/\s/g, '').toUpperCase() })),
     };
+    let returning = false;
+    if (!clean.guestNo) {
+      const assigned = await assignGuestNo(clean);
+      clean.guestNo = assigned.guestNo;
+      returning = assigned.returning;
+    }
     await Promise.all(Object.entries(newPhotos).filter(([id]) => g.idPhotos.includes(id)).map(([id, url]) => savePhoto(id, url)));
     await Promise.all((existing?.idPhotos ?? []).filter((id) => !g.idPhotos.includes(id)).map(deletePhoto));
     await saveGuest(clean);
     if (existing?.status === 'in' && existing.roomNumber.toLowerCase() !== clean.roomNumber.toLowerCase()) {
       await updateRoom(existing.roomNumber, { housekeeping: 'dirty' }); // guest moved rooms; old room needs cleaning
     }
-    onSaved(existing ? 'Guest details updated' : `${clean.fullName} checked in to room ${clean.roomNumber}`);
+    onSaved(
+      existing
+        ? 'Guest details updated'
+        : `${clean.fullName} (${clean.guestNo}${returning ? ', returning guest' : ''}) checked in to room ${clean.roomNumber}`,
+    );
     go(`guest/${clean.id}`);
   };
 

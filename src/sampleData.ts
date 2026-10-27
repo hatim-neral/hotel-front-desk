@@ -11,7 +11,7 @@ export function isSample(g: Guest): boolean {
 
 function base(id: string): Guest {
   return {
-    id: SAMPLE_PREFIX + id, status: 'in',
+    id: SAMPLE_PREFIX + id, guestNo: '', status: 'in',
     fullName: '', phone: '', email: '', gender: '', dob: '',
     nationality: 'Indian', country: 'India',
     idType: 'Aadhaar', idNumber: '', idPhotos: [],
