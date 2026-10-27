@@ -19,7 +19,10 @@ export default function Dashboard({ guests }: { guests: Guest[] }) {
           <p className="muted">{formatDate(today)}</p>
           <h1>Front Desk</h1>
         </div>
-        <a className="btn btn-primary btn-xl" href="#/checkin">+ New Check-In</a>
+        <div className="actions">
+          <a className="btn btn-danger btn-xl" href="#/checkout">Check-Out</a>
+          <a className="btn btn-primary btn-xl" href="#/checkin">+ New Check-In</a>
+        </div>
       </div>
 
       <input

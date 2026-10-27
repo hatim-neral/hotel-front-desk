@@ -9,14 +9,15 @@ import {
 } from '../utils';
 
 export default function GuestDetail({
-  guest: g, settings, onChanged,
+  guest: g, settings, onChanged, startCheckout,
 }: {
   guest?: Guest;
   settings: Settings;
   onChanged: (msg: string) => void;
+  startCheckout?: boolean; // opened from the Check-Out screen: show the confirm step straight away
 }) {
   const [showId, setShowId] = useState(false);
-  const [confirmOut, setConfirmOut] = useState(false);
+  const [confirmOut, setConfirmOut] = useState(!!startCheckout && g?.status === 'in');
   const [payMode, setPayMode] = useState<PaymentMode>('Cash');
 
   if (!g) return <p className="muted">Guest not found. <a href="#/">Go home</a></p>;

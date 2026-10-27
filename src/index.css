@@ -266,6 +266,10 @@ a { color: var(--primary); }
 .lightbox img { max-width: 100%; max-height: calc(100vh - 80px); border-radius: 6px; }
 .lightbox-hint { color: #ccc; font-size: 0.9rem; }
 
+.checkout-row { display: flex; align-items: center; gap: 12px; }
+.checkout-row .row { flex: 1; }
+.due-text { color: var(--warn); }
+
 .print-only { display: none; }
 
 @media (max-width: 640px) {
@@ -276,6 +280,7 @@ a { color: var(--primary); }
   .companion .field:first-child { grid-column: 1 / -1; }
   .sticky-actions .btn-xl { flex: 1; }
   .bill th:nth-child(2), .bill td:nth-child(2) { display: none; }
+  .checkout-row { flex-direction: column; align-items: stretch; gap: 0; padding-bottom: 12px; }
   .photo-thumb, .photo-add { width: calc(50vw - 40px); }
 }
 

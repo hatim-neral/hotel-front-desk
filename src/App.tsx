@@ -6,8 +6,9 @@ import CheckInForm from './screens/CheckInForm';
 import GuestList, { type ListFilter } from './screens/GuestList';
 import GuestDetail from './screens/GuestDetail';
 import SettingsScreen from './screens/Settings';
+import CheckOutList from './screens/CheckOutList';
 
-// Tiny hash router: #/, #/checkin, #/edit/:id, #/guests/:filter, #/guest/:id, #/settings
+// Tiny hash router: #/, #/checkin, #/checkout, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/settings
 function useRoute() {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -89,7 +90,14 @@ export default function App() {
       screen = <GuestList guests={guests} filter={(param as ListFilter) || 'inhouse'} />;
       break;
     case 'guest':
-      screen = <GuestDetail guest={guests.find((g) => g.id === param)} settings={settings} onChanged={notify} />;
+      screen = <GuestDetail key={param} guest={guests.find((g) => g.id === param)} settings={settings} onChanged={notify} />;
+      break;
+    case 'checkout':
+      screen = param ? (
+        <GuestDetail key={param} guest={guests.find((g) => g.id === param)} settings={settings} onChanged={notify} startCheckout />
+      ) : (
+        <CheckOutList guests={guests} />
+      );
       break;
     case 'settings':
       screen = <SettingsScreen settings={settings} guests={guests} onSaved={notify} />;
@@ -101,6 +109,7 @@ export default function App() {
   const nav = [
     { path: '', label: 'Home', active: !page },
     { path: 'checkin', label: '+ Check-In', active: page === 'checkin', primary: true },
+    { path: 'checkout', label: 'Check-Out', active: page === 'checkout' },
     { path: 'guests/inhouse', label: 'Guests', active: page === 'guests' || page === 'guest' },
     { path: 'settings', label: 'Settings', active: page === 'settings' },
   ];
