@@ -1,15 +1,19 @@
 import { useState } from 'react';
-import type { Guest } from '../types';
+import type { Guest, Room } from '../types';
+import { roomViews } from '../rooms';
 import { formatDate, isDueOutToday, matchesSearch, todayStr } from '../utils';
 import GuestRows from './GuestRows';
 
-export default function Dashboard({ guests }: { guests: Guest[] }) {
+export default function Dashboard({ guests, rooms }: { guests: Guest[]; rooms: Room[] }) {
   const [q, setQ] = useState('');
   const today = todayStr();
   const inHouse = guests.filter((g) => g.status === 'in');
   const dueOut = inHouse.filter(isDueOutToday);
   const arrivedToday = guests.filter((g) => g.checkInDate === today);
-  const departedToday = guests.filter((g) => g.checkedOutAt?.startsWith(today));
+  const departedToday = guests.filter((g) => g.status === 'out' && g.checkOutDate === today);
+  const views = roomViews(rooms, guests);
+  const freeRooms = views.filter((v) => v.state === 'available').length;
+  const dirtyRooms = views.filter((v) => v.state === 'dirty').length;
   const results = q.trim() ? guests.filter((g) => matchesSearch(g, q)).slice(0, 20) : [];
 
   return (
@@ -42,6 +46,11 @@ export default function Dashboard({ guests }: { guests: Guest[] }) {
       ) : (
         <>
           <div className="stats">
+            <a className="stat" href="#/rooms">
+              <span className="stat-num">{freeRooms}<span className="stat-of"> / {rooms.length}</span></span>
+              <span className="stat-label">Rooms available</span>
+              {dirtyRooms > 0 && <span className="stat-note">{dirtyRooms} need cleaning</span>}
+            </a>
             <a className="stat" href="#/guests/inhouse">
               <span className="stat-num">{inHouse.length}</span>
               <span className="stat-label">In-house guests</span>

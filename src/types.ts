@@ -103,11 +103,24 @@ export interface Guest {
   finalPayment?: { amount: number; mode: PaymentMode }; // collected (+) or refunded (−) at check-out
 }
 
+export type Housekeeping = 'clean' | 'dirty' | 'out-of-order';
+
+export interface RoomType {
+  name: string;
+  rate: string; // default price per night, ₹
+}
+
+export interface Room {
+  number: string;
+  type: string; // RoomType name
+  housekeeping: Housekeeping;
+}
+
 export interface Settings {
   hotelName: string;
   hotelAddress: string;
   defaultCheckOutTime: string;
-  roomTypes: string[];
+  roomTypes: RoomType[];
   invoicePrefix: string;
   nextInvoiceNo: number;
 }

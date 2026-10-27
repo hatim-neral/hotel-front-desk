@@ -1,16 +1,21 @@
 // All data access goes through this file. Today it uses the browser's
 // localStorage; to move to a server or a mobile database later, only
 // these functions need to change — the screens stay the same.
-import type { Guest, Settings } from './types';
+import type { Guest, Room, RoomType, Settings } from './types';
 
 const GUESTS_KEY = 'hotel.guests.v1';
 const SETTINGS_KEY = 'hotel.settings.v1';
+const ROOMS_KEY = 'hotel.rooms.v1';
 
 export const DEFAULT_SETTINGS: Settings = {
   hotelName: 'My Hotel',
   hotelAddress: '',
   defaultCheckOutTime: '11:00',
-  roomTypes: ['Standard', 'Deluxe', 'Suite', 'Dormitory'],
+  roomTypes: [
+    { name: 'Standard', rate: '1800' },
+    { name: 'Deluxe', rate: '2500' },
+    { name: 'Suite', rate: '4500' },
+  ],
   invoicePrefix: 'INV-',
   nextInvoiceNo: 1,
 };
@@ -102,10 +107,41 @@ export async function deletePhoto(id: string): Promise<void> {
 
 export async function loadSettings(): Promise<Settings> {
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+    const s = { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+    // Older versions stored room types as plain names without prices
+    s.roomTypes = (s.roomTypes as (string | RoomType)[]).map((t) => (typeof t === 'string' ? { name: t, rate: '' } : t));
+    return s;
   } catch {
     return DEFAULT_SETTINGS;
   }
+}
+
+// A starting room list; the hotel edits it in Settings.
+const DEFAULT_ROOMS: Room[] = [
+  ['101', 'Deluxe'], ['102', 'Standard'], ['103', 'Standard'], ['104', 'Deluxe'], ['105', 'Standard'], ['106', 'Standard'],
+  ['201', 'Suite'], ['202', 'Deluxe'], ['203', 'Deluxe'], ['204', 'Suite'],
+].map(([number, type]) => ({ number, type, housekeeping: 'clean' }));
+
+export function sortRooms(rooms: Room[]): Room[] {
+  return [...rooms].sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
+}
+
+export async function listRooms(): Promise<Room[]> {
+  try {
+    const raw = localStorage.getItem(ROOMS_KEY);
+    return sortRooms(raw ? JSON.parse(raw) : DEFAULT_ROOMS);
+  } catch {
+    return DEFAULT_ROOMS;
+  }
+}
+
+export async function saveRooms(rooms: Room[]): Promise<void> {
+  localStorage.setItem(ROOMS_KEY, JSON.stringify(sortRooms(rooms)));
+}
+
+export async function updateRoom(number: string, patch: Partial<Room>): Promise<void> {
+  const key = number.trim().toLowerCase();
+  await saveRooms((await listRooms()).map((r) => (r.number.toLowerCase() === key ? { ...r, ...patch } : r)));
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {

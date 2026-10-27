@@ -1,4 +1,4 @@
-import type { Guest } from './types';
+import type { Guest, Room } from './types';
 import { todayStr } from './utils';
 
 // Verhoeff checksum — the last digit of every real Aadhaar number is a Verhoeff check digit.
@@ -47,7 +47,7 @@ export function idNumberError(idType: string, value: string): string | undefined
 
 export type Errors = Partial<Record<string, string>>;
 
-export function validateGuest(g: Guest, occupiedRooms: Map<string, string>): Errors {
+export function validateGuest(g: Guest, occupiedRooms: Map<string, string>, rooms: Room[] = []): Errors {
   const e: Errors = {};
   const today = todayStr();
   const req = (field: keyof Guest, label = 'Required') => {
@@ -92,6 +92,11 @@ export function validateGuest(g: Guest, occupiedRooms: Map<string, string>): Err
   req('roomNumber');
   const occupant = occupiedRooms.get(g.roomNumber.trim().toLowerCase());
   if (occupant && g.status === 'in') e.roomNumber = `Room is occupied by ${occupant}`;
+  if (rooms.length && g.status === 'in' && g.roomNumber.trim() && !e.roomNumber) {
+    const room = rooms.find((r) => r.number.toLowerCase() === g.roomNumber.trim().toLowerCase());
+    if (!room) e.roomNumber = `Room ${g.roomNumber.trim()} is not in your room list (add it in Settings)`;
+    else if (room.housekeeping === 'out-of-order') e.roomNumber = 'This room is marked out of order';
+  }
   if (g.adults < 1) e.adults = 'At least 1 adult';
   req('checkInDate');
   req('checkInTime');

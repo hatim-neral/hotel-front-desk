@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Charge, Guest, PaymentMode, Settings } from '../types';
 import { CHARGE_CATEGORIES, PAYMENT_MODES } from '../types';
-import { deleteGuest, newId, saveGuest, takeInvoiceNumber } from '../storage';
+import { deleteGuest, newId, saveGuest, takeInvoiceNumber, updateRoom } from '../storage';
 import { Field, Segmented, StatusBadge } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
 import {
@@ -42,6 +42,7 @@ export default function GuestDetail({
       invoiceNo: await takeInvoiceNumber(),
       finalPayment: { amount: bill.balance, mode: payMode },
     });
+    await updateRoom(g.roomNumber, { housekeeping: 'dirty' }); // room needs cleaning before the next guest
     setConfirmOut(false);
     onChanged(`${g.fullName} checked out of room ${g.roomNumber}`);
   };

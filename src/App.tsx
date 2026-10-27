@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Guest, Settings } from './types';
-import { DEFAULT_SETTINGS, listGuests, loadSettings } from './storage';
+import type { Guest, Room, Settings } from './types';
+import { DEFAULT_SETTINGS, listGuests, listRooms, loadSettings } from './storage';
 import Dashboard from './screens/Dashboard';
 import CheckInForm from './screens/CheckInForm';
 import GuestList, { type ListFilter } from './screens/GuestList';
 import GuestDetail from './screens/GuestDetail';
 import SettingsScreen from './screens/Settings';
 import CheckOutList from './screens/CheckOutList';
+import RoomChart from './screens/RoomChart';
 
-// Tiny hash router: #/, #/checkin, #/checkout, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/settings
+// Tiny hash router: #/, #/checkin, #/checkin/:room, #/checkout, #/rooms, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/settings
 function useRoute() {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -44,6 +45,7 @@ export default function App() {
   const [page, param] = useRoute();
   const [guests, setGuests] = useState<Guest[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [toast, setToast] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [theme, toggleTheme] = useTheme();
@@ -51,6 +53,7 @@ export default function App() {
   const refresh = useCallback(async () => {
     setGuests(await listGuests());
     setSettings(await loadSettings());
+    setRooms(await listRooms());
     setLoaded(true);
   }, []);
 
@@ -73,13 +76,16 @@ export default function App() {
   if (!loaded) return null;
   switch (page) {
     case 'checkin':
-      screen = <CheckInForm guests={guests} settings={settings} onSaved={notify} />;
+      screen = (
+        <CheckInForm key={param} guests={guests} rooms={rooms} settings={settings} initialRoom={param && decodeURIComponent(param)} onSaved={notify} />
+      );
       break;
     case 'edit':
       screen = (
         <CheckInForm
           key={param}
           guests={guests}
+          rooms={rooms}
           settings={settings}
           existing={guests.find((g) => g.id === param)}
           onSaved={notify}
@@ -99,17 +105,21 @@ export default function App() {
         <CheckOutList guests={guests} />
       );
       break;
+    case 'rooms':
+      screen = <RoomChart rooms={rooms} guests={guests} settings={settings} onChanged={notify} />;
+      break;
     case 'settings':
-      screen = <SettingsScreen settings={settings} guests={guests} onSaved={notify} />;
+      screen = <SettingsScreen settings={settings} guests={guests} rooms={rooms} onSaved={notify} />;
       break;
     default:
-      screen = <Dashboard guests={guests} />;
+      screen = <Dashboard guests={guests} rooms={rooms} />;
   }
 
   const nav = [
     { path: '', label: 'Home', active: !page },
     { path: 'checkin', label: '+ Check-In', active: page === 'checkin', primary: true },
     { path: 'checkout', label: 'Check-Out', active: page === 'checkout' },
+    { path: 'rooms', label: 'Rooms', active: page === 'rooms' },
     { path: 'guests/inhouse', label: 'Guests', active: page === 'guests' || page === 'guest' },
     { path: 'settings', label: 'Settings', active: page === 'settings' },
   ];

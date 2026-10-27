@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
-import type { Companion, Guest, IdType, Nationality, Settings } from '../types';
+import type { Companion, Guest, IdType, Nationality, Room, Settings } from '../types';
 import { ID_TYPES, PAYMENT_MODES, PURPOSES, VISA_TYPES } from '../types';
 import { deletePhoto, newId, saveGuest, savePhoto } from '../storage';
 import { validateGuest, type Errors } from '../validation';
 import { Field, Section, Segmented } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
 import PlaceFields, { COUNTRY_LIST_ID, CountryList } from '../components/PlaceFields';
-import { addDays, formatAadhaar, go, nightsBetween, nowTime, todayStr } from '../utils';
+import { findRoom, rateFor, ROOM_STATE_LABEL, roomViews } from '../rooms';
+import { addDays, formatAadhaar, go, nightsBetween, nowTime, rupees, todayStr } from '../utils';
 
-function blankGuest(settings: Settings): Guest {
+function blankGuest(settings: Settings, room?: Room): Guest {
   return {
     id: newId(), status: 'in',
     fullName: '', phone: '', email: '', gender: '', dob: '',
@@ -18,10 +19,10 @@ function blankGuest(settings: Settings): Guest {
     visaNumber: '', visaType: '', visaIssueDate: '', visaPlaceOfIssue: '', visaExpiry: '', arrivalInIndia: '',
     address: '', addressCountry: 'India', city: '', state: '', pincode: '',
     purpose: 'Tourism', arrivingFrom: '', goingTo: '', vehicleNumber: '',
-    roomNumber: '', roomType: settings.roomTypes[0] ?? '', adults: 1, children: 0, companions: [],
+    roomNumber: room?.number ?? '', roomType: room?.type ?? settings.roomTypes[0]?.name ?? '', adults: 1, children: 0, companions: [],
     checkInDate: todayStr(), checkInTime: nowTime(),
     checkOutDate: '', checkOutTime: settings.defaultCheckOutTime,
-    ratePerNight: '', advancePaid: '', paymentMode: 'Cash', charges: [],
+    ratePerNight: room ? rateFor(settings, room.type) : '', advancePaid: '', paymentMode: 'Cash', charges: [],
     remarks: '', createdAt: new Date().toISOString(),
   };
 }
@@ -35,11 +36,13 @@ function blankCompanion(nationality: Nationality, country: string): Companion {
 }
 
 export default function CheckInForm({
-  guests, settings, existing, onSaved,
+  guests, rooms, settings, existing, initialRoom, onSaved,
 }: {
   guests: Guest[];
+  rooms: Room[];
   settings: Settings;
   existing?: Guest;
+  initialRoom?: string; // opened from the room chart: pre-select this room
   onSaved: (msg: string) => void;
 }) {
   const [g, setG] = useState<Guest>(() =>
@@ -52,7 +55,7 @@ export default function CheckInForm({
             (_, i) => existing.companions[i] ?? blankCompanion(existing.nationality, existing.country),
           ),
         }
-      : blankGuest(settings),
+      : blankGuest(settings, initialRoom ? findRoom(rooms, initialRoom) : undefined),
   );
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
@@ -69,8 +72,20 @@ export default function CheckInForm({
   const update = (patch: Partial<Guest>) => {
     const next = { ...g, ...patch };
     setG(next);
-    if (submitted) setErrors(validateGuest(next, occupiedRooms));
+    if (submitted) setErrors(validateGuest(next, occupiedRooms, rooms));
   };
+
+  // Typing a known room number fills in its type and that type's price
+  const setRoomNumber = (roomNumber: string) => {
+    const room = findRoom(rooms, roomNumber);
+    update(room ? { roomNumber, roomType: room.type, ratePerNight: rateFor(settings, room.type) || g.ratePerNight } : { roomNumber });
+  };
+  const setRoomType = (roomType: string) => update({ roomType, ratePerNight: rateFor(settings, roomType) || g.ratePerNight });
+
+  const views = roomViews(rooms, guests);
+  const selectedRoom = findRoom(rooms, g.roomNumber);
+  const freeRooms = views.filter((v) => !v.guest && v.state !== 'out-of-order');
+  const typeNames = settings.roomTypes.map((t) => t.name);
   const set = <K extends keyof Guest>(key: K, value: Guest[K]) => update({ [key]: value } as Partial<Guest>);
 
   const setCompanion = (i: number, patch: Partial<Companion>) =>
@@ -105,7 +120,7 @@ export default function CheckInForm({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitted(true);
-    const errs = validateGuest(g, occupiedRooms);
+    const errs = validateGuest(g, occupiedRooms, rooms);
     setErrors(errs);
     if (Object.keys(errs).length) {
       setTimeout(() => document.querySelector('.has-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
@@ -267,12 +282,35 @@ export default function CheckInForm({
       </Section>
 
       <Section title={num() + 'Stay'}>
-        <Field label="Room number" required error={errors.roomNumber}>
-          <input className="input-big" value={g.roomNumber} onChange={(e) => set('roomNumber', e.target.value)} />
+        <Field
+          label="Room number"
+          required
+          error={errors.roomNumber}
+          hint={
+            selectedRoom
+              ? `${selectedRoom.type}${selectedRoom.housekeeping === 'dirty' ? ' · ⚠ not cleaned yet' : ''}`
+              : `${freeRooms.length} room(s) free — type or pick`
+          }
+        >
+          <input
+            className="input-big"
+            list="room-list"
+            value={g.roomNumber}
+            onChange={(e) => setRoomNumber(e.target.value)}
+            autoComplete="off"
+          />
+          <datalist id="room-list">
+            {freeRooms.map((v) => (
+              <option key={v.room.number} value={v.room.number}>
+                {`${v.room.type} · ${ROOM_STATE_LABEL[v.state]}`}
+              </option>
+            ))}
+          </datalist>
         </Field>
-        <Field label="Room type">
-          <select value={g.roomType} onChange={(e) => set('roomType', e.target.value)}>
-            {settings.roomTypes.map((t) => <option key={t}>{t}</option>)}
+        <Field label="Room type" hint={rateFor(settings, g.roomType) && `Standard price ${rupees(Number(rateFor(settings, g.roomType)))}/night`}>
+          <select value={g.roomType} onChange={(e) => setRoomType(e.target.value)}>
+            {!typeNames.includes(g.roomType) && <option>{g.roomType}</option>}
+            {typeNames.map((t) => <option key={t}>{t}</option>)}
           </select>
         </Field>
         <Field label="Adults" required error={errors.adults}>
@@ -341,7 +379,7 @@ export default function CheckInForm({
       </Section>
 
       <Section title={num() + 'Payment'}>
-        <Field label="Rate per night (₹)">
+        <Field label="Rate per night (₹)" hint="Filled from the room type — change it for a discount">
           <input inputMode="decimal" value={g.ratePerNight} onChange={(e) => set('ratePerNight', e.target.value.replace(/[^\d.]/g, ''))} />
         </Field>
         <Field label="Advance paid (₹)">
