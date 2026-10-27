@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Companion, Guest, IdType, Nationality, Room, Settings } from '../types';
 import { ID_TYPES, PAYMENT_MODES, PURPOSES, VISA_TYPES } from '../types';
-import { deletePhoto, newId, saveGuest, savePhoto } from '../storage';
+import { deletePhoto, newId, saveGuest, savePhoto, updateRoom } from '../storage';
 import { validateGuest, type Errors } from '../validation';
 import { Field, Section, Segmented } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
@@ -137,6 +137,9 @@ export default function CheckInForm({
     await Promise.all(Object.entries(newPhotos).filter(([id]) => g.idPhotos.includes(id)).map(([id, url]) => savePhoto(id, url)));
     await Promise.all((existing?.idPhotos ?? []).filter((id) => !g.idPhotos.includes(id)).map(deletePhoto));
     await saveGuest(clean);
+    if (existing?.status === 'in' && existing.roomNumber.toLowerCase() !== clean.roomNumber.toLowerCase()) {
+      await updateRoom(existing.roomNumber, { housekeeping: 'dirty' }); // guest moved rooms; old room needs cleaning
+    }
     onSaved(existing ? 'Guest details updated' : `${clean.fullName} checked in to room ${clean.roomNumber}`);
     go(`guest/${clean.id}`);
   };

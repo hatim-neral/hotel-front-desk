@@ -7,7 +7,6 @@ import GuestList, { type ListFilter } from './screens/GuestList';
 import GuestDetail from './screens/GuestDetail';
 import SettingsScreen from './screens/Settings';
 import CheckOutList from './screens/CheckOutList';
-import RoomChart from './screens/RoomChart';
 
 // Tiny hash router: #/, #/checkin, #/checkin/:room, #/checkout, #/rooms, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/settings
 function useRoute() {
@@ -105,21 +104,17 @@ export default function App() {
         <CheckOutList guests={guests} />
       );
       break;
-    case 'rooms':
-      screen = <RoomChart rooms={rooms} guests={guests} settings={settings} onChanged={notify} />;
-      break;
     case 'settings':
       screen = <SettingsScreen settings={settings} guests={guests} rooms={rooms} onSaved={notify} />;
       break;
     default:
-      screen = <Dashboard guests={guests} rooms={rooms} />;
+      screen = <Dashboard guests={guests} rooms={rooms} settings={settings} onChanged={notify} />;
   }
 
   const nav = [
-    { path: '', label: 'Home', active: !page },
+    { path: '', label: 'Front Desk', active: !page || page === 'rooms' },
     { path: 'checkin', label: '+ Check-In', active: page === 'checkin', primary: true },
     { path: 'checkout', label: 'Check-Out', active: page === 'checkout' },
-    { path: 'rooms', label: 'Rooms', active: page === 'rooms' },
     { path: 'guests/inhouse', label: 'Guests', active: page === 'guests' || page === 'guest' },
     { path: 'settings', label: 'Settings', active: page === 'settings' },
   ];
@@ -127,7 +122,10 @@ export default function App() {
   return (
     <>
       <header className="topbar no-print">
-        <a className="brand" href="#/">{settings.hotelName}</a>
+        <a className="brand" href="#/">
+          <span className="brand-mark" aria-hidden>{settings.hotelName.trim()[0]?.toUpperCase() || 'H'}</span>
+          {settings.hotelName}
+        </a>
         <nav>
           {nav.map((n) => (
             <a

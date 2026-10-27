@@ -86,7 +86,7 @@ export default function SettingsScreen({
 
       <Section title="Sample guests (for practice)">
         <p className="wide muted">
-          Adds 7 made-up guests so staff can practise check-in, bills and check-out. Sample records are marked and can be removed at any time.
+          Fills the hotel with about 40 made-up guests so staff can practise check-in, bills and check-out. Sample records are marked and can be removed at any time.
           {sampleCount > 0 && ` ${sampleCount} sample guest(s) loaded now.`}
         </p>
         <div className="wide actions">

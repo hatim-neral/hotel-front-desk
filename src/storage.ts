@@ -116,11 +116,20 @@ export async function loadSettings(): Promise<Settings> {
   }
 }
 
-// A starting room list; the hotel edits it in Settings.
-const DEFAULT_ROOMS: Room[] = [
-  ['101', 'Deluxe'], ['102', 'Standard'], ['103', 'Standard'], ['104', 'Deluxe'], ['105', 'Standard'], ['106', 'Standard'],
-  ['201', 'Suite'], ['202', 'Deluxe'], ['203', 'Deluxe'], ['204', 'Suite'],
-].map(([number, type]) => ({ number, type, housekeeping: 'clean' }));
+// A starting room list of 70 rooms (7 floors x 10): x01-x06 Standard, x07-x09 Deluxe, x10 Suite.
+// The hotel edits it in Settings.
+const DEFAULT_ROOMS: Room[] = Array.from({ length: 70 }, (_, i) => {
+  const floor = Math.floor(i / 10) + 1;
+  const n = (i % 10) + 1;
+  return {
+    number: String(floor * 100 + n),
+    type: n <= 6 ? 'Standard' : n <= 9 ? 'Deluxe' : 'Suite',
+    housekeeping: 'clean' as const,
+  };
+});
+
+// The 10-room list shipped by an earlier version; upgraded to DEFAULT_ROOMS keeping cleaning status.
+const OLD_DEFAULT_NUMBERS = '101,102,103,104,105,106,201,202,203,204';
 
 export function sortRooms(rooms: Room[]): Room[] {
   return [...rooms].sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
@@ -129,10 +138,21 @@ export function sortRooms(rooms: Room[]): Room[] {
 export async function listRooms(): Promise<Room[]> {
   try {
     const raw = localStorage.getItem(ROOMS_KEY);
-    return sortRooms(raw ? JSON.parse(raw) : DEFAULT_ROOMS);
+    if (!raw) return DEFAULT_ROOMS;
+    const rooms: Room[] = sortRooms(JSON.parse(raw));
+    if (rooms.map((r) => r.number).join(',') === OLD_DEFAULT_NUMBERS) {
+      const upgraded = DEFAULT_ROOMS.map((d) => ({ ...d, housekeeping: findHousekeeping(rooms, d.number) }));
+      await saveRooms(upgraded);
+      return upgraded;
+    }
+    return rooms;
   } catch {
     return DEFAULT_ROOMS;
   }
+}
+
+function findHousekeeping(rooms: Room[], number: string): Room['housekeeping'] {
+  return rooms.find((r) => r.number === number)?.housekeeping ?? 'clean';
 }
 
 export async function saveRooms(rooms: Room[]): Promise<void> {
