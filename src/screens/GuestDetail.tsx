@@ -59,15 +59,21 @@ export default function GuestDetail({
     ['Gender', g.gender],
     ['Date of birth', formatDate(g.dob)],
     ['Citizenship', isIndian ? 'Indian' : `Foreign — ${g.country}`],
+    ...(!isIndian || g.idType === 'Passport'
+      ? ([
+          ['Passport issued', [formatDate(g.passportIssueDate), g.passportPlaceOfIssue].filter((v) => v && v !== '—').join(', ')],
+          ['Passport expiry', formatDate(g.passportExpiry)],
+        ] as [string, string][])
+      : []),
     ...(isIndian
       ? []
       : ([
-          ['Passport expiry', formatDate(g.passportExpiry)],
           ['Visa', `${g.visaNumber}${g.visaType ? ` (${g.visaType})` : ''}`],
+          ['Visa issued', [formatDate(g.visaIssueDate), g.visaPlaceOfIssue].filter((v) => v && v !== '—').join(', ')],
           ['Visa expiry', formatDate(g.visaExpiry)],
           ['Arrived in India', formatDate(g.arrivalInIndia)],
         ] as [string, string][])),
-    ['Address', [g.address, g.city, g.state, g.pincode].filter(Boolean).join(', ')],
+    ['Address', [g.address, g.city, g.state, g.pincode, g.addressCountry].filter(Boolean).join(', ')],
     ['Purpose', g.purpose],
     ['Arriving from', g.arrivingFrom],
     ['Next destination', g.goingTo],
@@ -102,8 +108,8 @@ export default function GuestDetail({
         </div>
         <div className="stat">
           <span className="stat-label">{inHouse ? 'Check-out' : 'Checked out'}</span>
-          <span className="stat-val">{formatDate(g.checkOutDate)}</span>
-          <span className="muted">{formatTime(g.checkOutTime)}</span>
+          <span className="stat-val">{g.checkOutDate ? formatDate(g.checkOutDate) : 'Not set'}</span>
+          <span className="muted">{g.checkOutDate && formatTime(g.checkOutTime)}</span>
         </div>
         <div className="stat">
           <span className="stat-label">{isIndian ? g.idType : 'Passport'}</span>
@@ -228,13 +234,20 @@ export default function GuestDetail({
 
       {g.companions.length > 0 && (
         <section className="card">
-          <h2 className="card-title">Other guests in the room</h2>
+          <h2 className="card-title">Other adults in the room</h2>
           <dl className="details">
             {g.companions.map((c, i) => (
               <div key={i}>
                 <dt>{c.name}</dt>
                 <dd>
-                  {[c.gender, c.age && `${c.age} yrs`, c.idNumber && `${c.idType} ${c.idNumber}`].filter(Boolean).join(' · ')}
+                  {[
+                    c.nationality === 'Foreign' ? c.country : 'Indian',
+                    c.gender,
+                    c.age && `${c.age} yrs`,
+                    c.idNumber && `${c.nationality === 'Foreign' ? 'Passport' : c.idType} ${c.idNumber}`,
+                    c.passportExpiry && `passport valid till ${formatDate(c.passportExpiry)}`,
+                    c.visaNumber && `Visa ${c.visaNumber} till ${formatDate(c.visaExpiry)}`,
+                  ].filter(Boolean).join(' · ')}
                 </dd>
               </div>
             ))}

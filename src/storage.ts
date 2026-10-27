@@ -19,7 +19,20 @@ function readGuests(): Guest[] {
   try {
     const raw: Guest[] = JSON.parse(localStorage.getItem(GUESTS_KEY) || '[]');
     // Fill fields added in later versions so older records keep working
-    return raw.map((g) => ({ ...g, charges: g.charges ?? [], idPhotos: g.idPhotos ?? [] }));
+    return raw.map((g) => {
+      const guestDefaults = {
+        passportIssueDate: '', passportPlaceOfIssue: '', visaIssueDate: '', visaPlaceOfIssue: '',
+        addressCountry: g.nationality === 'Foreign' ? g.country : 'India',
+      };
+      const companionDefaults = { nationality: g.nationality, country: g.country, passportExpiry: '', visaNumber: '', visaExpiry: '' };
+      return {
+        ...guestDefaults,
+        ...g,
+        charges: g.charges ?? [],
+        idPhotos: g.idPhotos ?? [],
+        companions: (g.companions ?? []).map((c) => ({ ...companionDefaults, ...c })),
+      };
+    });
   } catch {
     return [];
   }

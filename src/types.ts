@@ -3,6 +3,7 @@ export type Nationality = 'Indian' | 'Foreign';
 export type IdType = 'Aadhaar' | 'Passport' | 'Driving Licence' | 'Voter ID' | 'PAN' | 'Other';
 export type PaymentMode = 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Company / OTA';
 
+export const VISA_TYPES = ['e-Tourist', 'Tourist', 'e-Business', 'Business', 'Employment', 'Student', 'Medical', 'Conference', 'Other'];
 export const ID_TYPES: IdType[] = ['Aadhaar', 'Passport', 'Driving Licence', 'Voter ID', 'PAN', 'Other'];
 export const PAYMENT_MODES: PaymentMode[] = ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Company / OTA'];
 export const PURPOSES = ['Tourism', 'Business', 'Family / Personal', 'Medical', 'Pilgrimage', 'Other'];
@@ -18,12 +19,19 @@ export interface Charge {
   date: string; // YYYY-MM-DD
 }
 
+// Another adult in the room. For Indian guests only the name is required;
+// for foreign guests everything is required (Form C).
 export interface Companion {
   name: string;
   gender: Gender | '';
   age: string;
+  nationality: Nationality;
+  country: string;
   idType: IdType;
   idNumber: string;
+  passportExpiry: string;
+  visaNumber: string;
+  visaExpiry: string;
 }
 
 export interface Guest {
@@ -44,16 +52,23 @@ export interface Guest {
   idNumber: string;
   idPhotos: string[]; // photo ids; the images live in storage.ts photo store
 
-  // Foreign guests (needed for Form C)
-  passportNumber: string;
+  // Passport (Indian guests using a passport as ID, and all foreign guests)
+  passportNumber: string; // foreign guests; Indian guests keep it in idNumber
+  passportIssueDate: string;
   passportExpiry: string;
+  passportPlaceOfIssue: string;
+
+  // Visa (foreign guests, needed for Form C)
   visaNumber: string;
   visaType: string;
+  visaIssueDate: string;
+  visaPlaceOfIssue: string;
   visaExpiry: string;
   arrivalInIndia: string;
 
   // Address
   address: string;
+  addressCountry: string;
   city: string;
   state: string;
   pincode: string;
@@ -72,7 +87,7 @@ export interface Guest {
   companions: Companion[];
   checkInDate: string; // YYYY-MM-DD
   checkInTime: string; // HH:MM
-  checkOutDate: string;
+  checkOutDate: string; // optional at check-in; set to the actual date on check-out
   checkOutTime: string;
 
   // Payment

@@ -46,6 +46,11 @@ export function formatTime(time: string): string {
   return `${((h + 11) % 12) + 1}:${pad(m)} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+// Date + time, or a dash when no date is set (check-out date is optional)
+export function formatWhen(date: string, time: string): string {
+  return date ? `${formatDate(date)} ${formatTime(time)}`.trim() : 'Not set';
+}
+
 export function maskId(id: string): string {
   const clean = id.replace(/\s/g, '');
   if (clean.length <= 4) return clean;
@@ -57,7 +62,7 @@ export function formatAadhaar(value: string): string {
 }
 
 export function isDueOutToday(g: Guest): boolean {
-  return g.status === 'in' && g.checkOutDate <= todayStr();
+  return g.status === 'in' && !!g.checkOutDate && g.checkOutDate <= todayStr();
 }
 
 export function guestIdLabel(g: Guest): string {
@@ -80,8 +85,9 @@ export function matchesSearch(g: Guest, q: string): boolean {
 export function toCsv(guests: Guest[]): string {
   const cols: (keyof Guest)[] = [
     'fullName', 'phone', 'email', 'gender', 'dob', 'nationality', 'country',
-    'idType', 'idNumber', 'passportNumber', 'passportExpiry', 'visaNumber', 'visaType',
-    'visaExpiry', 'arrivalInIndia', 'address', 'city', 'state', 'pincode', 'purpose',
+    'idType', 'idNumber', 'passportNumber', 'passportIssueDate', 'passportExpiry', 'passportPlaceOfIssue',
+    'visaNumber', 'visaType', 'visaIssueDate', 'visaPlaceOfIssue', 'visaExpiry', 'arrivalInIndia',
+    'address', 'city', 'state', 'addressCountry', 'pincode', 'purpose',
     'arrivingFrom', 'goingTo', 'vehicleNumber', 'roomNumber', 'roomType', 'adults',
     'children', 'checkInDate', 'checkInTime', 'checkOutDate', 'checkOutTime',
     'ratePerNight', 'advancePaid', 'paymentMode', 'status', 'checkedOutAt', 'invoiceNo', 'remarks',
@@ -91,7 +97,7 @@ export function toCsv(guests: Guest[]): string {
     const b = billFor(g);
     return [
       ...cols.map((c) => esc(g[c])),
-      esc(g.companions.map((c) => `${c.name} (${c.idType} ${c.idNumber})`).join('; ')),
+      esc(g.companions.map((c) => `${c.name} (${c.nationality === 'Foreign' ? `${c.country}, Passport` : c.idType} ${c.idNumber})`).join('; ')),
       esc(g.charges.map((c) => `#${c.billNo} ${c.category} ₹${c.amount}`).join('; ')),
       b.extras, b.total, b.balance,
     ].join(',');

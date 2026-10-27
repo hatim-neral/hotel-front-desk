@@ -1,31 +1,38 @@
 import { useMemo, useState } from 'react';
-import type { Companion, Guest, IdType, Settings } from '../types';
-import { ID_TYPES, PAYMENT_MODES, PURPOSES } from '../types';
+import type { Companion, Guest, IdType, Nationality, Settings } from '../types';
+import { ID_TYPES, PAYMENT_MODES, PURPOSES, VISA_TYPES } from '../types';
 import { deletePhoto, newId, saveGuest, savePhoto } from '../storage';
 import { validateGuest, type Errors } from '../validation';
 import { Field, Section, Segmented } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
+import PlaceFields, { COUNTRY_LIST_ID, CountryList } from '../components/PlaceFields';
 import { addDays, formatAadhaar, go, nightsBetween, nowTime, todayStr } from '../utils';
 
 function blankGuest(settings: Settings): Guest {
-  const today = todayStr();
   return {
     id: newId(), status: 'in',
     fullName: '', phone: '', email: '', gender: '', dob: '',
     nationality: 'Indian', country: 'India',
     idType: 'Aadhaar', idNumber: '', idPhotos: [],
-    passportNumber: '', passportExpiry: '', visaNumber: '', visaType: '', visaExpiry: '', arrivalInIndia: '',
-    address: '', city: '', state: '', pincode: '',
+    passportNumber: '', passportIssueDate: '', passportExpiry: '', passportPlaceOfIssue: '',
+    visaNumber: '', visaType: '', visaIssueDate: '', visaPlaceOfIssue: '', visaExpiry: '', arrivalInIndia: '',
+    address: '', addressCountry: 'India', city: '', state: '', pincode: '',
     purpose: 'Tourism', arrivingFrom: '', goingTo: '', vehicleNumber: '',
     roomNumber: '', roomType: settings.roomTypes[0] ?? '', adults: 1, children: 0, companions: [],
-    checkInDate: today, checkInTime: nowTime(),
-    checkOutDate: addDays(today, 1), checkOutTime: settings.defaultCheckOutTime,
+    checkInDate: todayStr(), checkInTime: nowTime(),
+    checkOutDate: '', checkOutTime: settings.defaultCheckOutTime,
     ratePerNight: '', advancePaid: '', paymentMode: 'Cash', charges: [],
     remarks: '', createdAt: new Date().toISOString(),
   };
 }
 
-const blankCompanion = (): Companion => ({ name: '', gender: '', age: '', idType: 'Aadhaar', idNumber: '' });
+function blankCompanion(nationality: Nationality, country: string): Companion {
+  const indian = nationality === 'Indian';
+  return {
+    name: '', gender: '', age: '', nationality, country: indian ? 'India' : country,
+    idType: indian ? 'Aadhaar' : 'Passport', idNumber: '', passportExpiry: '', visaNumber: '', visaExpiry: '',
+  };
+}
 
 export default function CheckInForm({
   guests, settings, existing, onSaved,
@@ -35,7 +42,18 @@ export default function CheckInForm({
   existing?: Guest;
   onSaved: (msg: string) => void;
 }) {
-  const [g, setG] = useState<Guest>(() => existing ?? blankGuest(settings));
+  const [g, setG] = useState<Guest>(() =>
+    existing
+      ? {
+          ...existing,
+          // Older records may have a different number of companion forms than adults
+          companions: Array.from(
+            { length: Math.max(0, existing.adults - 1) },
+            (_, i) => existing.companions[i] ?? blankCompanion(existing.nationality, existing.country),
+          ),
+        }
+      : blankGuest(settings),
+  );
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
   const [newPhotos, setNewPhotos] = useState<Record<string, string>>({});
@@ -48,19 +66,41 @@ export default function CheckInForm({
     return m;
   }, [guests, g.id]);
 
-  const set = <K extends keyof Guest>(key: K, value: Guest[K]) => {
-    const next = { ...g, [key]: value };
+  const update = (patch: Partial<Guest>) => {
+    const next = { ...g, ...patch };
     setG(next);
     if (submitted) setErrors(validateGuest(next, occupiedRooms));
   };
+  const set = <K extends keyof Guest>(key: K, value: Guest[K]) => update({ [key]: value } as Partial<Guest>);
 
   const setCompanion = (i: number, patch: Partial<Companion>) =>
     set('companions', g.companions.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+
+  // One details form per extra adult: 2 adults -> 1 extra form, 3 adults -> 2, ...
+  const setAdults = (adults: number) =>
+    update({
+      adults,
+      companions: Array.from({ length: adults - 1 }, (_, i) => g.companions[i] ?? blankCompanion(g.nationality, g.country)),
+    });
+
+  const setNationality = (nationality: Nationality) => {
+    const indian = nationality === 'Indian';
+    // Only reset the address country if it's still on the default for the old choice
+    const resetAddress = indian ? !g.addressCountry : g.addressCountry === 'India';
+    update({
+      nationality,
+      country: indian ? 'India' : '',
+      idType: indian ? 'Aadhaar' : 'Passport',
+      ...(resetAddress ? { addressCountry: indian ? 'India' : '', state: '', city: '' } : {}),
+      companions: g.companions.map((c) => ({ ...blankCompanion(nationality, ''), name: c.name, gender: c.gender, age: c.age })),
+    });
+  };
 
   const nights = nightsBetween(g.checkInDate, g.checkOutDate);
   const total = nights * (Number(g.ratePerNight) || 0);
   const balance = total - (Number(g.advancePaid) || 0);
   const isIndian = g.nationality === 'Indian';
+  const indianPassport = isIndian && g.idType === 'Passport';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +117,7 @@ export default function CheckInForm({
       roomNumber: g.roomNumber.trim(),
       idNumber: g.idNumber.replace(/\s/g, '').toUpperCase(),
       passportNumber: g.passportNumber.trim().toUpperCase(),
+      companions: g.companions.map((c) => ({ ...c, name: c.name.trim(), idNumber: c.idNumber.replace(/\s/g, '').toUpperCase() })),
     };
     await Promise.all(Object.entries(newPhotos).filter(([id]) => g.idPhotos.includes(id)).map(([id, url]) => savePhoto(id, url)));
     await Promise.all((existing?.idPhotos ?? []).filter((id) => !g.idPhotos.includes(id)).map(deletePhoto));
@@ -99,21 +140,41 @@ export default function CheckInForm({
     </Field>
   );
 
+  // Issue date, expiry and place of issue, shown whenever a passport is the ID proof
+  const passportDateFields = (
+    <>
+      <Field label="Passport issue date" required error={errors.passportIssueDate}>
+        <input type="date" value={g.passportIssueDate} max={todayStr()} onChange={(e) => set('passportIssueDate', e.target.value)} />
+      </Field>
+      <Field label="Passport expiry date" required error={errors.passportExpiry}>
+        <input type="date" value={g.passportExpiry} min={todayStr()} onChange={(e) => set('passportExpiry', e.target.value)} />
+      </Field>
+      <Field label="Place of issue" required error={errors.passportPlaceOfIssue}>
+        <input value={g.passportPlaceOfIssue} placeholder="City / country" onChange={(e) => set('passportPlaceOfIssue', e.target.value)} />
+      </Field>
+    </>
+  );
+
+  let step = 0;
+  const num = () => `${++step}. `;
+
   return (
     <form className="stack form" onSubmit={submit} noValidate>
       <h1>{existing ? 'Edit Guest' : 'New Check-In'}</h1>
+      <CountryList />
 
-      <Section title="1. Guest details">
+      <Section title={num() + 'Guest details'}>
         <Field label="Full name (as on ID)" required error={errors.fullName} wide>
           <input value={g.fullName} onChange={(e) => set('fullName', e.target.value)} autoFocus={!existing} autoComplete="off" />
         </Field>
         <Field label="Citizenship" required>
-          <Segmented
-            options={['Indian', 'Foreign'] as const}
-            value={g.nationality}
-            onChange={(v) => setG({ ...g, nationality: v, country: v === 'Indian' ? 'India' : '' })}
-          />
+          <Segmented options={['Indian', 'Foreign'] as const} value={g.nationality} onChange={setNationality} />
         </Field>
+        {!isIndian && (
+          <Field label="Country of citizenship" required error={errors.country}>
+            <input list={COUNTRY_LIST_ID} value={g.country} placeholder="Type to search…" autoComplete="off" onChange={(e) => set('country', e.target.value)} />
+          </Field>
+        )}
         <Field label="Gender" required error={errors.gender}>
           <Segmented options={['Male', 'Female', 'Other'] as const} value={g.gender} onChange={(v) => set('gender', v)} />
         </Field>
@@ -131,23 +192,14 @@ export default function CheckInForm({
         <Field label="Date of birth">
           <input type="date" value={g.dob} max={todayStr()} onChange={(e) => set('dob', e.target.value)} />
         </Field>
-        {!isIndian && (
-          <Field label="Country of citizenship" required error={errors.country}>
-            <input value={g.country} onChange={(e) => set('country', e.target.value)} />
-          </Field>
-        )}
       </Section>
 
       {isIndian ? (
-        <Section title="2. ID proof">
+        <Section title={num() + 'ID proof'}>
           <Field label="ID type" required wide>
-            <Segmented
-              options={ID_TYPES}
-              value={g.idType}
-              onChange={(v: IdType) => set('idType', v)}
-            />
+            <Segmented options={ID_TYPES} value={g.idType} onChange={(v: IdType) => set('idType', v)} />
           </Field>
-          <Field label={`${g.idType} number`} required error={errors.idNumber} wide>
+          <Field label={`${g.idType} number`} required error={errors.idNumber} wide={!indianPassport}>
             <input
               value={g.idType === 'Aadhaar' ? formatAadhaar(g.idNumber) : g.idNumber}
               inputMode={g.idType === 'Aadhaar' ? 'numeric' : 'text'}
@@ -158,24 +210,33 @@ export default function CheckInForm({
               autoComplete="off"
             />
           </Field>
+          {indianPassport && passportDateFields}
           {photoField}
         </Section>
       ) : (
-        <Section title="2. Passport & visa (Form C)">
+        <Section title={num() + 'Passport & visa (Form C)'}>
           <Field label="Passport number" required error={errors.passportNumber}>
-            <input value={g.passportNumber} onChange={(e) => set('passportNumber', e.target.value.toUpperCase())} />
+            <input value={g.passportNumber} onChange={(e) => set('passportNumber', e.target.value.toUpperCase())} autoComplete="off" />
           </Field>
-          <Field label="Passport expiry">
-            <input type="date" value={g.passportExpiry} onChange={(e) => set('passportExpiry', e.target.value)} />
-          </Field>
+          {passportDateFields}
+          <div className="wide subhead">Visa</div>
           <Field label="Visa number" required error={errors.visaNumber}>
-            <input value={g.visaNumber} onChange={(e) => set('visaNumber', e.target.value.toUpperCase())} />
+            <input value={g.visaNumber} onChange={(e) => set('visaNumber', e.target.value.toUpperCase())} autoComplete="off" />
           </Field>
-          <Field label="Visa type">
-            <input value={g.visaType} placeholder="e.g. e-Tourist, Business" onChange={(e) => set('visaType', e.target.value)} />
+          <Field label="Visa type" required error={errors.visaType}>
+            <select value={g.visaType} onChange={(e) => set('visaType', e.target.value)}>
+              <option value="">Select…</option>
+              {VISA_TYPES.map((t) => <option key={t}>{t}</option>)}
+            </select>
           </Field>
-          <Field label="Visa expiry" required error={errors.visaExpiry}>
-            <input type="date" value={g.visaExpiry} onChange={(e) => set('visaExpiry', e.target.value)} />
+          <Field label="Visa issue date" required error={errors.visaIssueDate}>
+            <input type="date" value={g.visaIssueDate} max={todayStr()} onChange={(e) => set('visaIssueDate', e.target.value)} />
+          </Field>
+          <Field label="Visa expiry date" required error={errors.visaExpiry}>
+            <input type="date" value={g.visaExpiry} min={todayStr()} onChange={(e) => set('visaExpiry', e.target.value)} />
+          </Field>
+          <Field label="Visa place of issue" hint="Leave blank for e-Visa">
+            <input value={g.visaPlaceOfIssue} onChange={(e) => set('visaPlaceOfIssue', e.target.value)} />
           </Field>
           <Field label="Date of arrival in India" required error={errors.arrivalInIndia}>
             <input type="date" value={g.arrivalInIndia} max={todayStr()} onChange={(e) => set('arrivalInIndia', e.target.value)} />
@@ -184,22 +245,28 @@ export default function CheckInForm({
         </Section>
       )}
 
-      <Section title="3. Address">
-        <Field label={isIndian ? 'Address' : 'Permanent address (home country)'} required error={errors.address} wide>
+      <Section title={num() + (isIndian ? 'Address' : 'Permanent address (home country)')}>
+        <Field label="House / street / area" required error={errors.address} wide>
           <textarea rows={2} value={g.address} onChange={(e) => set('address', e.target.value)} />
         </Field>
-        <Field label="City" required error={errors.city}>
-          <input value={g.city} onChange={(e) => set('city', e.target.value)} />
-        </Field>
-        <Field label="State">
-          <input value={g.state} onChange={(e) => set('state', e.target.value)} />
-        </Field>
-        <Field label={isIndian ? 'Pincode' : 'Postal code'} error={errors.pincode}>
-          <input inputMode={isIndian ? 'numeric' : 'text'} value={g.pincode} onChange={(e) => set('pincode', e.target.value)} />
+        <PlaceFields
+          country={g.addressCountry}
+          state={g.state}
+          city={g.city}
+          cityRequired
+          errors={{ country: errors.addressCountry, city: errors.city }}
+          onChange={(p) => update({ addressCountry: p.country, state: p.state, city: p.city })}
+        />
+        <Field label={g.addressCountry === 'India' ? 'Pincode' : 'Postal code'} error={errors.pincode}>
+          <input
+            inputMode={g.addressCountry === 'India' ? 'numeric' : 'text'}
+            value={g.pincode}
+            onChange={(e) => set('pincode', g.addressCountry === 'India' ? e.target.value.replace(/\D/g, '').slice(0, 6) : e.target.value)}
+          />
         </Field>
       </Section>
 
-      <Section title="4. Stay">
+      <Section title={num() + 'Stay'}>
         <Field label="Room number" required error={errors.roomNumber}>
           <input className="input-big" value={g.roomNumber} onChange={(e) => set('roomNumber', e.target.value)} />
         </Field>
@@ -209,7 +276,7 @@ export default function CheckInForm({
           </select>
         </Field>
         <Field label="Adults" required error={errors.adults}>
-          <Stepper value={g.adults} min={1} onChange={(v) => set('adults', v)} />
+          <Stepper value={g.adults} min={1} onChange={setAdults} />
         </Field>
         <Field label="Children">
           <Stepper value={g.children} min={0} onChange={(v) => set('children', v)} />
@@ -220,64 +287,43 @@ export default function CheckInForm({
         <Field label="Check-in time" required error={errors.checkInTime}>
           <input type="time" value={g.checkInTime} onChange={(e) => set('checkInTime', e.target.value)} />
         </Field>
-        <Field label="Check-out date" required error={errors.checkOutDate}>
+        <Field label="Check-out date" error={errors.checkOutDate} hint="Optional — leave blank if not decided">
           <input type="date" value={g.checkOutDate} min={g.checkInDate} onChange={(e) => set('checkOutDate', e.target.value)} />
         </Field>
-        <Field label="Check-out time" required error={errors.checkOutTime}>
+        <Field label="Check-out time">
           <input type="time" value={g.checkOutTime} onChange={(e) => set('checkOutTime', e.target.value)} />
         </Field>
-        <Field label={`Nights: ${nights}`} wide>
+        <Field label={g.checkOutDate ? `Nights: ${nights}` : 'Nights: not decided'} wide>
           <div className="quick">
             {[1, 2, 3, 4, 5, 7].map((n) => (
               <button
                 key={n}
                 type="button"
-                className={nights === n ? 'active' : ''}
+                className={g.checkOutDate && nights === n ? 'active' : ''}
                 onClick={() => set('checkOutDate', addDays(g.checkInDate, n))}
               >
                 {n} night{n > 1 ? 's' : ''}
               </button>
             ))}
+            <button type="button" className={g.checkOutDate ? '' : 'active'} onClick={() => set('checkOutDate', '')}>
+              Not decided
+            </button>
           </div>
         </Field>
       </Section>
 
-      <Section title="5. Other guests in the room">
-        {g.companions.map((c, i) => (
-          <div key={i} className="companion wide">
-            <Field label={`Guest ${i + 2} name`} required error={errors[`companion${i}`]}>
-              <input value={c.name} onChange={(e) => setCompanion(i, { name: e.target.value })} />
-            </Field>
-            <Field label="Gender">
-              <select value={c.gender} onChange={(e) => setCompanion(i, { gender: e.target.value as Companion['gender'] })}>
-                <option value="">—</option>
-                <option>Male</option><option>Female</option><option>Other</option>
-              </select>
-            </Field>
-            <Field label="Age">
-              <input inputMode="numeric" value={c.age} onChange={(e) => setCompanion(i, { age: e.target.value.replace(/\D/g, '').slice(0, 3) })} />
-            </Field>
-            <Field label="ID type">
-              <select value={c.idType} onChange={(e) => setCompanion(i, { idType: e.target.value as IdType })}>
-                {ID_TYPES.map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </Field>
-            <Field label="ID number">
-              <input value={c.idNumber} onChange={(e) => setCompanion(i, { idNumber: e.target.value.toUpperCase() })} />
-            </Field>
-            <button type="button" className="btn btn-ghost remove" onClick={() => set('companions', g.companions.filter((_, j) => j !== i))}>
-              Remove
-            </button>
-          </div>
-        ))}
-        <div className="wide">
-          <button type="button" className="btn" onClick={() => set('companions', [...g.companions, blankCompanion()])}>
-            + Add another guest
-          </button>
-        </div>
-      </Section>
+      {g.companions.length > 0 && (
+        <Section title={`${num()}Other adults (${g.companions.length})`}>
+          <p className="wide muted small">
+            Indian guests: only the name is required. Foreign guests: all details are required (Form C).
+          </p>
+          {g.companions.map((c, i) => (
+            <CompanionCard key={i} index={i} c={c} errors={errors} onChange={(patch) => setCompanion(i, patch)} />
+          ))}
+        </Section>
+      )}
 
-      <Section title="6. Travel">
+      <Section title={num() + 'Travel'}>
         <Field label="Purpose of visit">
           <select value={g.purpose} onChange={(e) => set('purpose', e.target.value)}>
             {PURPOSES.map((p) => <option key={p}>{p}</option>)}
@@ -294,7 +340,7 @@ export default function CheckInForm({
         </Field>
       </Section>
 
-      <Section title="7. Payment">
+      <Section title={num() + 'Payment'}>
         <Field label="Rate per night (₹)">
           <input inputMode="decimal" value={g.ratePerNight} onChange={(e) => set('ratePerNight', e.target.value.replace(/[^\d.]/g, ''))} />
         </Field>
@@ -325,6 +371,77 @@ export default function CheckInForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function CompanionCard({
+  index, c, errors, onChange,
+}: {
+  index: number;
+  c: Companion;
+  errors: Errors;
+  onChange: (patch: Partial<Companion>) => void;
+}) {
+  const err = (f: string) => errors[`c${index}.${f}`];
+  const foreign = c.nationality === 'Foreign';
+  const setNationality = (nationality: Nationality) =>
+    onChange({
+      nationality,
+      country: nationality === 'Indian' ? 'India' : '',
+      idType: nationality === 'Indian' ? 'Aadhaar' : 'Passport',
+      idNumber: '',
+    });
+
+  return (
+    <div className="companion-card wide">
+      <div className="companion-title">Adult {index + 2}</div>
+      <div className="grid">
+        <Field label="Full name" required error={err('name')} wide>
+          <input value={c.name} onChange={(e) => onChange({ name: e.target.value })} autoComplete="off" />
+        </Field>
+        <Field label="Citizenship" required>
+          <Segmented options={['Indian', 'Foreign'] as const} value={c.nationality} onChange={setNationality} />
+        </Field>
+        {foreign && (
+          <Field label="Country of citizenship" required error={err('country')}>
+            <input list={COUNTRY_LIST_ID} value={c.country} placeholder="Type to search…" autoComplete="off" onChange={(e) => onChange({ country: e.target.value })} />
+          </Field>
+        )}
+        <Field label="Gender" required={foreign} error={err('gender')}>
+          <Segmented options={['Male', 'Female', 'Other'] as const} value={c.gender} onChange={(v) => onChange({ gender: v })} />
+        </Field>
+        <Field label="Age" required={foreign} error={err('age')}>
+          <input inputMode="numeric" value={c.age} onChange={(e) => onChange({ age: e.target.value.replace(/\D/g, '').slice(0, 3) })} />
+        </Field>
+        {foreign ? (
+          <>
+            <Field label="Passport number" required error={err('idNumber')}>
+              <input value={c.idNumber} onChange={(e) => onChange({ idNumber: e.target.value.toUpperCase() })} autoComplete="off" />
+            </Field>
+            <Field label="Passport expiry" required error={err('passportExpiry')}>
+              <input type="date" value={c.passportExpiry} min={todayStr()} onChange={(e) => onChange({ passportExpiry: e.target.value })} />
+            </Field>
+            <Field label="Visa number" required error={err('visaNumber')}>
+              <input value={c.visaNumber} onChange={(e) => onChange({ visaNumber: e.target.value.toUpperCase() })} autoComplete="off" />
+            </Field>
+            <Field label="Visa expiry" required error={err('visaExpiry')}>
+              <input type="date" value={c.visaExpiry} min={todayStr()} onChange={(e) => onChange({ visaExpiry: e.target.value })} />
+            </Field>
+          </>
+        ) : (
+          <>
+            <Field label="ID type">
+              <select value={c.idType} onChange={(e) => onChange({ idType: e.target.value as IdType })}>
+                {ID_TYPES.map((t) => <option key={t}>{t}</option>)}
+              </select>
+            </Field>
+            <Field label="ID number">
+              <input value={c.idNumber} onChange={(e) => onChange({ idNumber: e.target.value.toUpperCase() })} autoComplete="off" />
+            </Field>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

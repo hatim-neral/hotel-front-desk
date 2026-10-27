@@ -157,10 +157,10 @@ a { color: var(--primary); }
   border-top: 1.5px solid var(--border); border-bottom: 1.5px solid var(--border);
 }
 
-.companion {
-  display: grid; grid-template-columns: 2fr 1fr 0.7fr 1.2fr 1.5fr auto; gap: 10px; align-items: end;
-  padding-bottom: 14px; border-bottom: 1px dashed var(--border);
-}
+.companion-card { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--hover); }
+.companion-title { font-weight: 700; margin-bottom: 10px; }
+.subhead { font-weight: 700; padding-top: 6px; border-top: 1px solid var(--border); }
+.small { font-size: 0.9rem; margin: 0; }
 .summary {
   display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
   padding: 12px 14px; background: var(--primary-soft); border-radius: 8px;
@@ -277,8 +277,6 @@ a { color: var(--primary); }
   .row { grid-template-columns: auto 1fr; }
   .row-dates { grid-column: 2; text-align: left; }
   .row .badge { grid-column: 2; justify-self: start; }
-  .companion { grid-template-columns: 1fr 1fr; }
-  .companion .field:first-child { grid-column: 1 / -1; }
   .sticky-actions .btn-xl { flex: 1; }
   .bill th:nth-child(2), .bill td:nth-child(2) { display: none; }
   .checkout-row { flex-direction: column; align-items: stretch; gap: 0; padding-bottom: 12px; }

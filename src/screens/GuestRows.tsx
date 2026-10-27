@@ -1,7 +1,7 @@
 import type { Guest } from '../types';
 import { StatusBadge } from '../components/ui';
 import { isSample } from '../sampleData';
-import { formatDate, formatTime, guestIdLabel, isDueOutToday, maskId } from '../utils';
+import { formatDate, formatWhen, guestIdLabel, isDueOutToday, maskId } from '../utils';
 
 export default function GuestRows({ guests }: { guests: Guest[] }) {
   if (!guests.length) return null;
@@ -22,7 +22,7 @@ export default function GuestRows({ guests }: { guests: Guest[] }) {
               </span>
               <span className="row-dates">
                 <span>In: {formatDate(g.checkInDate)}</span>
-                <span>Out: {formatDate(g.checkOutDate)} {formatTime(g.checkOutTime)}</span>
+                <span>Out: {formatWhen(g.checkOutDate, g.checkOutTime)}</span>
               </span>
               <StatusBadge status={g.status} dueOut={isDueOutToday(g)} />
             </a>

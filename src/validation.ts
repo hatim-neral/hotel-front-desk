@@ -1,4 +1,5 @@
 import type { Guest } from './types';
+import { todayStr } from './utils';
 
 // Verhoeff checksum — the last digit of every real Aadhaar number is a Verhoeff check digit.
 const D = [
@@ -48,8 +49,19 @@ export type Errors = Partial<Record<string, string>>;
 
 export function validateGuest(g: Guest, occupiedRooms: Map<string, string>): Errors {
   const e: Errors = {};
+  const today = todayStr();
   const req = (field: keyof Guest, label = 'Required') => {
     if (!String(g[field] ?? '').trim()) e[field] = label;
+  };
+  const notExpired = (field: 'passportExpiry' | 'visaExpiry', what: string) => {
+    if (!g[field]) e[field] = 'Required';
+    else if (g[field] < today) e[field] = `This ${what} has expired`;
+  };
+  const passportDates = () => {
+    if (!g.passportIssueDate) e.passportIssueDate = 'Required';
+    else if (g.passportIssueDate > today) e.passportIssueDate = 'Issue date cannot be in the future';
+    notExpired('passportExpiry', 'passport');
+    req('passportPlaceOfIssue');
   };
 
   req('fullName');
@@ -57,17 +69,24 @@ export function validateGuest(g: Guest, occupiedRooms: Map<string, string>): Err
   if (g.nationality === 'Indian') {
     if (!/^[6-9]\d{9}$/.test(g.phone)) e.phone = 'Enter a 10-digit mobile number';
     e.idNumber = idNumberError(g.idType, g.idNumber);
-    if (g.pincode && !/^\d{6}$/.test(g.pincode)) e.pincode = 'Pincode must be 6 digits';
+    if (g.idType === 'Passport') passportDates();
+    if (g.addressCountry === 'India' && g.pincode && !/^\d{6}$/.test(g.pincode)) e.pincode = 'Pincode must be 6 digits';
   } else {
     if (!/^\+?\d{7,15}$/.test(g.phone.replace(/[\s-]/g, ''))) e.phone = 'Enter phone with country code';
     req('country');
+    if (g.country.trim().toLowerCase() === 'india') e.country = 'For Indian citizens choose "Indian" above';
     e.passportNumber = idNumberError('Passport', g.passportNumber);
+    passportDates();
     req('visaNumber');
-    req('visaExpiry');
+    req('visaType', 'Select visa type');
+    if (!g.visaIssueDate) e.visaIssueDate = 'Required';
+    else if (g.visaIssueDate > today) e.visaIssueDate = 'Issue date cannot be in the future';
+    notExpired('visaExpiry', 'visa');
     req('arrivalInIndia');
   }
   if (g.email && !/^\S+@\S+\.\S+$/.test(g.email)) e.email = 'Email looks wrong';
   req('address');
+  req('addressCountry');
   req('city');
 
   req('roomNumber');
@@ -76,15 +95,26 @@ export function validateGuest(g: Guest, occupiedRooms: Map<string, string>): Err
   if (g.adults < 1) e.adults = 'At least 1 adult';
   req('checkInDate');
   req('checkInTime');
-  req('checkOutDate');
-  req('checkOutTime');
-  if (g.checkOutDate && g.checkInDate &&
-      `${g.checkOutDate}T${g.checkOutTime}` <= `${g.checkInDate}T${g.checkInTime}`) {
+  // Check-out date is optional at check-in; if given it must be after check-in
+  if (g.checkOutDate && `${g.checkOutDate}T${g.checkOutTime || '23:59'}` <= `${g.checkInDate}T${g.checkInTime}`) {
     e.checkOutDate = 'Check-out must be after check-in';
   }
 
+  // Other adults: Indian guests need only a name; foreign guests need everything (Form C)
   g.companions.forEach((c, i) => {
-    if (!c.name.trim()) e[`companion${i}`] = 'Companion name required';
+    const k = (f: string) => `c${i}.${f}`;
+    if (!c.name.trim()) e[k('name')] = 'Name required';
+    if (c.nationality === 'Indian') return;
+    if (!c.gender) e[k('gender')] = 'Required';
+    if (!c.age.trim()) e[k('age')] = 'Required';
+    if (!c.country.trim()) e[k('country')] = 'Required';
+    else if (c.country.trim().toLowerCase() === 'india') e[k('country')] = 'Choose "Indian" for Indian citizens';
+    e[k('idNumber')] = idNumberError('Passport', c.idNumber);
+    if (!c.passportExpiry) e[k('passportExpiry')] = 'Required';
+    else if (c.passportExpiry < today) e[k('passportExpiry')] = 'Passport has expired';
+    if (!c.visaNumber.trim()) e[k('visaNumber')] = 'Required';
+    if (!c.visaExpiry) e[k('visaExpiry')] = 'Required';
+    else if (c.visaExpiry < today) e[k('visaExpiry')] = 'Visa has expired';
   });
 
   Object.keys(e).forEach((k) => e[k] === undefined && delete e[k]);

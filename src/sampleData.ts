@@ -1,6 +1,6 @@
 // Demo guests for trying the app. All names, numbers and IDs are made up.
 // Dates are relative to today so the dashboard always has something to show.
-import type { Charge, Guest } from './types';
+import type { Charge, Companion, Guest, IdType } from './types';
 import { addDays, todayStr } from './utils';
 
 export const SAMPLE_PREFIX = 'sample-';
@@ -15,14 +15,19 @@ function base(id: string): Guest {
     fullName: '', phone: '', email: '', gender: '', dob: '',
     nationality: 'Indian', country: 'India',
     idType: 'Aadhaar', idNumber: '', idPhotos: [],
-    passportNumber: '', passportExpiry: '', visaNumber: '', visaType: '', visaExpiry: '', arrivalInIndia: '',
-    address: '', city: '', state: '', pincode: '',
+    passportNumber: '', passportIssueDate: '', passportExpiry: '', passportPlaceOfIssue: '',
+    visaNumber: '', visaType: '', visaIssueDate: '', visaPlaceOfIssue: '', visaExpiry: '', arrivalInIndia: '',
+    address: '', addressCountry: 'India', city: '', state: '', pincode: '',
     purpose: 'Tourism', arrivingFrom: '', goingTo: '', vehicleNumber: '',
     roomNumber: '', roomType: 'Standard', adults: 1, children: 0, companions: [],
     checkInDate: todayStr(), checkInTime: '12:00', checkOutDate: addDays(todayStr(), 1), checkOutTime: '11:00',
     ratePerNight: '', advancePaid: '', paymentMode: 'Cash', charges: [],
     remarks: '', createdAt: new Date().toISOString(),
   };
+}
+
+function indian(name: string, gender: Companion['gender'], age: string, idType: IdType, idNumber: string): Companion {
+  return { name, gender, age, nationality: 'Indian', country: 'India', idType, idNumber, passportExpiry: '', visaNumber: '', visaExpiry: '' };
 }
 
 function bill(billNo: string, category: string, amount: number, daysAgo: number, description = ''): Charge {
@@ -38,7 +43,7 @@ export function buildSampleGuests(): Guest[] {
       idNumber: '987654321012', address: '14 Shanti Nagar', city: 'Jaipur', state: 'Rajasthan', pincode: '302001',
       arrivingFrom: 'Jaipur', goingTo: 'Udaipur', vehicleNumber: 'RJ14 CD 4521',
       roomNumber: '101', roomType: 'Deluxe', adults: 2,
-      companions: [{ name: 'Priya Sharma', gender: 'Female', age: '34', idType: 'Aadhaar', idNumber: '876543210988' }],
+      companions: [indian('Priya Sharma', 'Female', '34', 'Aadhaar', '876543210988')],
       checkInDate: day(-2), checkInTime: '13:20', checkOutDate: t, checkOutTime: '11:00',
       ratePerNight: '2500', advancePaid: '3000', paymentMode: 'UPI',
       charges: [bill('R-1045', 'Food', 640, 1, 'Dinner — 2 thali'), bill('L-221', 'Laundry', 180, 0)],
@@ -59,20 +64,22 @@ export function buildSampleGuests(): Guest[] {
       idNumber: '765432109878', address: '22 Charminar Road', city: 'Hyderabad', state: 'Telangana', pincode: '500002',
       purpose: 'Family / Personal', arrivingFrom: 'Hyderabad', goingTo: 'Hyderabad',
       roomNumber: '201', roomType: 'Suite', adults: 2, children: 1,
-      companions: [
-        { name: 'Ayesha Arif', gender: 'Female', age: '38', idType: 'Aadhaar', idNumber: '654321098763' },
-        { name: 'Zaid Arif', gender: 'Male', age: '9', idType: 'Other', idNumber: '' },
-      ],
+      companions: [indian('Ayesha Arif', 'Female', '38', 'Aadhaar', '654321098763')],
       checkInDate: t, checkInTime: '10:05', checkOutDate: day(3), checkOutTime: '11:00',
       ratePerNight: '4500', advancePaid: '10000', paymentMode: 'Card',
     },
     {
       ...base('4'), fullName: 'Emma Wilson', phone: '+447700900123', email: 'emma.wilson@example.com', gender: 'Female', dob: '1990-06-18',
       nationality: 'Foreign', country: 'United Kingdom', idType: 'Passport',
-      passportNumber: '533419872', passportExpiry: '2031-03-09', visaNumber: 'ETV7781234', visaType: 'e-Tourist', visaExpiry: day(45),
-      arrivalInIndia: day(-6), address: '18 Baker Street', city: 'London', state: '', pincode: 'NW1 6XE',
+      passportNumber: '533419872', passportIssueDate: '2021-03-10', passportExpiry: '2031-03-09', passportPlaceOfIssue: 'London',
+      visaNumber: 'ETV7781234', visaType: 'e-Tourist', visaIssueDate: day(-20), visaExpiry: day(45),
+      arrivalInIndia: day(-6), address: '18 Baker Street', addressCountry: 'United Kingdom', state: 'England', city: 'London', pincode: 'NW1 6XE',
       arrivingFrom: 'Agra', goingTo: 'Varanasi',
-      roomNumber: '202', roomType: 'Deluxe',
+      roomNumber: '202', roomType: 'Deluxe', adults: 2,
+      companions: [{
+        name: 'James Wilson', gender: 'Male', age: '36', nationality: 'Foreign', country: 'United Kingdom',
+        idType: 'Passport', idNumber: '548812093', passportExpiry: '2029-11-30', visaNumber: 'ETV7781235', visaExpiry: day(45),
+      }],
       checkInDate: day(-3), checkInTime: '15:30', checkOutDate: day(1), checkOutTime: '10:00',
       ratePerNight: '3200', advancePaid: '5000', paymentMode: 'Card',
       charges: [bill('R-1031', 'Food', 920, 2), bill('M-077', 'Minibar', 260, 1)],
@@ -90,10 +97,11 @@ export function buildSampleGuests(): Guest[] {
     },
     {
       ...base('6'), fullName: 'Arjun Mehta', phone: '9000000106', gender: 'Male', dob: '1997-02-14',
-      idNumber: '543210987652', address: '9 Model Town', city: 'Delhi', state: 'Delhi', pincode: '110009',
+      idType: 'Passport', idNumber: 'T4567891', passportIssueDate: '2019-07-15', passportExpiry: '2029-07-14', passportPlaceOfIssue: 'Delhi',
+      address: '9 Model Town', city: 'Delhi', state: 'Delhi', pincode: '110009',
       arrivingFrom: 'Delhi', goingTo: 'Rishikesh', vehicleNumber: 'DL3C AB 1234',
       roomNumber: '105', roomType: 'Standard',
-      checkInDate: t, checkInTime: '11:40', checkOutDate: day(1), checkOutTime: '11:00',
+      checkInDate: t, checkInTime: '11:40', checkOutDate: '', checkOutTime: '11:00',
       ratePerNight: '2200', advancePaid: '1000', paymentMode: 'Cash',
     },
     {

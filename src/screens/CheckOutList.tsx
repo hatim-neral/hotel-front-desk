@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Guest } from '../types';
 import { StatusBadge } from '../components/ui';
-import { billFor, formatDate, formatTime, isDueOutToday, matchesSearch, rupees } from '../utils';
+import { billFor, formatWhen, isDueOutToday, matchesSearch, rupees } from '../utils';
 
 // Quick check-out: in-house guests, those due out first, with their balance and a one-tap Check Out.
 export default function CheckOutList({ guests }: { guests: Guest[] }) {
@@ -36,7 +36,7 @@ export default function CheckOutList({ guests }: { guests: Guest[] }) {
                     <span className="row-main">
                       <strong>{g.fullName}</strong>
                       <span className="muted">
-                        Due out {formatDate(g.checkOutDate)} {formatTime(g.checkOutTime)}
+                        {g.checkOutDate ? `Due out ${formatWhen(g.checkOutDate, g.checkOutTime)}` : 'Check-out date not set'}
                       </span>
                     </span>
                     <span className="row-dates">
