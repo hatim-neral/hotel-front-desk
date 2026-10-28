@@ -34,8 +34,6 @@ export function idNumberError(idType: string, value: string): string | undefined
       if (!/^\d{12}$/.test(v)) return 'Aadhaar must be 12 digits';
       if (!isValidAadhaar(v)) return 'This Aadhaar number is not valid — please re-check';
       return;
-    case 'PAN':
-      return /^[A-Z]{5}\d{4}[A-Z]$/.test(v) ? undefined : 'PAN format: ABCDE1234F';
     case 'Passport':
       return /^[A-Z0-9]{6,9}$/.test(v) ? undefined : 'Passport number looks wrong';
     case 'Voter ID':

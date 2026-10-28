@@ -70,6 +70,16 @@ export default function SettingsScreen({
           <Field label="Default check-out time">
             <input type="time" value={s.defaultCheckOutTime} onChange={(e) => setS({ ...s, defaultCheckOutTime: e.target.value })} />
           </Field>
+          <Field label="GST rate (%)" hint="Added on room charges and extra bills for new check-ins">
+            <input
+              inputMode="decimal"
+              value={s.gstRate}
+              onChange={(e) => setS({ ...s, gstRate: Math.min(100, Number(e.target.value.replace(/[^\d.]/g, '')) || 0) })}
+            />
+          </Field>
+          <Field label="Hotel GSTIN" hint="Printed on bills (optional)">
+            <input value={s.gstin} maxLength={15} onChange={(e) => setS({ ...s, gstin: e.target.value.toUpperCase() })} />
+          </Field>
           <div className="wide">
             <button type="submit" className="btn btn-primary">Save hotel details</button>
           </div>

@@ -1,6 +1,6 @@
 // Demo guests for trying the app. All names, numbers and IDs are made up.
 // Dates are relative to today so the dashboard always has something to show.
-import type { Charge, Companion, Guest, IdType } from './types';
+import type { Charge, Companion, Guest, IdType, Payment, PaymentMode } from './types';
 import { addDays, billFor, todayStr } from './utils';
 
 export const SAMPLE_PREFIX = 'sample-';
@@ -21,13 +21,18 @@ function base(id: string): Guest {
     purpose: 'Tourism', arrivingFrom: '', goingTo: '', vehicleNumber: '',
     roomNumber: '', roomType: 'Standard', adults: 1, children: 0, companions: [],
     checkInDate: todayStr(), checkInTime: '12:00', checkOutDate: addDays(todayStr(), 1), checkOutTime: '11:00',
-    ratePerNight: '', advancePaid: '', paymentMode: 'Cash', charges: [],
+    ratePerNight: '', gstRate: 5, payments: [], charges: [],
     remarks: '', createdAt: new Date().toISOString(),
   };
 }
 
 function indian(name: string, gender: Companion['gender'], age: string, idType: IdType, idNumber: string): Companion {
   return { name, gender, age, nationality: 'Indian', country: 'India', idType, idNumber, passportExpiry: '', visaNumber: '', visaExpiry: '' };
+}
+
+// Advance paid at check-in; the date is filled from the guest's check-in in buildSampleGuests
+function advance(amount: string, mode: PaymentMode): Payment[] {
+  return Number(amount) > 0 ? [{ id: '', amount: Number(amount), mode, kind: 'advance', date: '', time: '' }] : [];
 }
 
 function bill(billNo: string, category: string, amount: number, daysAgo: number, description = ''): Charge {
@@ -66,23 +71,32 @@ function fillerGuests(taken: Set<string>): Guest[] {
       gender: k % 2 ? 'Female' : 'Male',
       idType: 'Driving Licence', idNumber: `MH12${2015 + (k % 9)}00${String(4000 + k * 37).padStart(5, '0')}`,
       address: `${10 + k} Main Road`, city, state, pincode: '',
-      roomNumber: room, roomType: type, adults: 1 + (k % 2), ratePerNight: rate, advancePaid: k % 3 ? rate : '',
-      paymentMode: k % 2 ? 'UPI' : 'Cash',
+      roomNumber: room, roomType: type, adults: 1 + (k % 2), ratePerNight: rate,
+      payments: advance(k % 3 ? rate : '', k % 2 ? 'UPI' : 'Cash'),
       companions: k % 2 ? [indian(`${FIRST[(k + 5) % FIRST.length]} ${LAST[(k * 7) % LAST.length]}`, '', '', 'Aadhaar', '')] : [],
       checkInDate: addDays(t, -(leftToday ? Math.max(1, inDaysAgo) : inDaysAgo)), checkInTime: '13:00',
       checkOutDate: leftToday ? t : addDays(t, nights - inDaysAgo), checkOutTime: '11:00',
-      ...(leftToday ? { checkedOutAt: new Date().toISOString(), finalPayment: { amount: 0, mode: 'Cash' as const } } : {}),
+      ...(leftToday ? { checkedOutAt: new Date().toISOString() } : {}),
     });
   });
-  // Guests who left today settled their bill in full
-  return out.map((g) =>
-    g.status === 'out' ? { ...g, finalPayment: { amount: billFor({ ...g, finalPayment: undefined }).balance, mode: 'Cash' } } : g,
-  );
+  return out;
 }
 
 export function buildSampleGuests(): Guest[] {
   const main = mainSampleGuests();
-  return [...main, ...fillerGuests(new Set(main.map((g) => g.roomNumber)))];
+  return [...main, ...fillerGuests(new Set(main.map((g) => g.roomNumber)))].map((g) => {
+    const payments = g.payments.map((p, i) => ({ ...p, id: `${g.id}-p${i}`, date: g.checkInDate, time: g.checkInTime }));
+    // Guests who already left settled the rest of their bill at check-out, half cash, half UPI
+    if (g.status === 'out') {
+      const due = billFor({ ...g, payments }).balance;
+      const half = Math.round(due / 2);
+      payments.push(
+        { id: `${g.id}-c1`, amount: half, mode: 'Cash', kind: 'checkout', date: g.checkOutDate, time: g.checkOutTime },
+        { id: `${g.id}-c2`, amount: Math.round((due - half) * 100) / 100, mode: 'UPI', kind: 'checkout', date: g.checkOutDate, time: g.checkOutTime },
+      );
+    }
+    return { ...g, payments };
+  });
 }
 
 function mainSampleGuests(): Guest[] {
@@ -96,7 +110,7 @@ function mainSampleGuests(): Guest[] {
       roomNumber: '107', roomType: 'Deluxe', adults: 2,
       companions: [indian('Priya Sharma', 'Female', '34', 'Aadhaar', '876543210988')],
       checkInDate: day(-2), checkInTime: '13:20', checkOutDate: t, checkOutTime: '11:00',
-      ratePerNight: '2500', advancePaid: '3000', paymentMode: 'UPI',
+      ratePerNight: '2500', payments: advance('3000', 'UPI'),
       charges: [bill('R-1045', 'Food', 640, 1, 'Dinner — 2 thali'), bill('L-221', 'Laundry', 180, 0)],
       createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
     },
@@ -106,7 +120,7 @@ function mainSampleGuests(): Guest[] {
       purpose: 'Business', arrivingFrom: 'Chennai', goingTo: 'Chennai',
       roomNumber: '102', roomType: 'Standard',
       checkInDate: day(-1), checkInTime: '18:45', checkOutDate: day(2), checkOutTime: '11:00',
-      ratePerNight: '1800', advancePaid: '1800', paymentMode: 'Cash',
+      ratePerNight: '1800', payments: advance('1800', 'Cash'),
       charges: [bill('R-1052', 'Room Service', 350, 0, 'Breakfast in room')],
       createdAt: new Date(Date.now() - 86_400_000).toISOString(),
     },
@@ -117,7 +131,7 @@ function mainSampleGuests(): Guest[] {
       roomNumber: '210', roomType: 'Suite', adults: 2, children: 1,
       companions: [indian('Ayesha Arif', 'Female', '38', 'Aadhaar', '654321098763')],
       checkInDate: t, checkInTime: '10:05', checkOutDate: day(3), checkOutTime: '11:00',
-      ratePerNight: '4500', advancePaid: '10000', paymentMode: 'Card',
+      ratePerNight: '4500', payments: advance('10000', 'Card'),
     },
     {
       ...base('4'), fullName: 'Emma Wilson', phone: '+447700900123', email: 'emma.wilson@example.com', gender: 'Female', dob: '1990-06-18',
@@ -132,7 +146,7 @@ function mainSampleGuests(): Guest[] {
         idType: 'Passport', idNumber: '548812093', passportExpiry: '2029-11-30', visaNumber: 'ETV7781235', visaExpiry: day(45),
       }],
       checkInDate: day(-3), checkInTime: '15:30', checkOutDate: day(1), checkOutTime: '10:00',
-      ratePerNight: '3200', advancePaid: '5000', paymentMode: 'Card',
+      ratePerNight: '3200', payments: advance('5000', 'Card'),
       charges: [bill('R-1031', 'Food', 920, 2), bill('M-077', 'Minibar', 260, 1)],
       createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
     },
@@ -142,7 +156,7 @@ function mainSampleGuests(): Guest[] {
       purpose: 'Business', arrivingFrom: 'Surat', goingTo: 'Mumbai',
       roomNumber: '103', roomType: 'Standard',
       checkInDate: day(-1), checkInTime: '21:10', checkOutDate: t, checkOutTime: '09:00',
-      ratePerNight: '1500', advancePaid: '', paymentMode: 'Cash',
+      ratePerNight: '1500', payments: advance('', 'Cash'),
       charges: [bill('R-1049', 'Food', 300, 1)],
       createdAt: new Date(Date.now() - 86_400_000).toISOString(),
     },
@@ -153,7 +167,7 @@ function mainSampleGuests(): Guest[] {
       arrivingFrom: 'Delhi', goingTo: 'Rishikesh', vehicleNumber: 'DL3C AB 1234',
       roomNumber: '305', roomType: 'Standard',
       checkInDate: t, checkInTime: '11:40', checkOutDate: '', checkOutTime: '11:00',
-      ratePerNight: '2200', advancePaid: '1000', paymentMode: 'Cash',
+      ratePerNight: '2200', payments: advance('1000', 'Cash'),
     },
     {
       ...base('7'), status: 'out', fullName: 'Kavita Reddy', phone: '9000000107', email: 'kavita.reddy@example.com', gender: 'Female', dob: '1985-08-22',
@@ -161,11 +175,10 @@ function mainSampleGuests(): Guest[] {
       purpose: 'Pilgrimage', arrivingFrom: 'Bengaluru', goingTo: 'Bengaluru',
       roomNumber: '308', roomType: 'Deluxe',
       checkInDate: day(-3), checkInTime: '14:00', checkOutDate: day(-1), checkOutTime: '10:30',
-      ratePerNight: '2000', advancePaid: '2000', paymentMode: 'UPI',
+      ratePerNight: '2000', payments: advance('2000', 'UPI'),
       charges: [bill('R-1022', 'Food', 450, 2)],
       createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
       checkedOutAt: new Date(Date.now() - 86_400_000).toISOString(),
-      finalPayment: { amount: 2450, mode: 'UPI' },
     },
   ];
 }

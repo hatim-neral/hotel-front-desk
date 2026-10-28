@@ -91,7 +91,7 @@ export function toCsv(guests: Guest[]): string {
     'address', 'city', 'state', 'addressCountry', 'pincode', 'purpose',
     'arrivingFrom', 'goingTo', 'vehicleNumber', 'roomNumber', 'roomType', 'adults',
     'children', 'checkInDate', 'checkInTime', 'checkOutDate', 'checkOutTime',
-    'ratePerNight', 'advancePaid', 'paymentMode', 'status', 'checkedOutAt', 'remarks',
+    'ratePerNight', 'gstRate', 'status', 'checkedOutAt', 'remarks',
   ];
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = guests.map((g) => {
@@ -100,10 +100,11 @@ export function toCsv(guests: Guest[]): string {
       ...cols.map((c) => esc(g[c])),
       esc(g.companions.map((c) => `${c.name} (${c.nationality === 'Foreign' ? `${c.country}, Passport` : c.idType} ${c.idNumber})`).join('; ')),
       esc(g.charges.map((c) => `${c.chargeNo} ${c.category} ₹${c.amount}${c.billNo ? ` (slip ${c.billNo})` : ''}`).join('; ')),
-      b.extras, b.total, b.balance,
+      esc(g.payments.map((p) => `${p.amount < 0 ? 'Refund' : 'Paid'} ${p.mode} ₹${Math.abs(p.amount)} (${p.date})`).join('; ')),
+      b.extras, b.subtotal, b.gst, b.total, b.paid, b.balance,
     ].join(',');
   });
-  return [[...cols, 'companions', 'bills', 'extrasTotal', 'grandTotal', 'balance'].join(','), ...rows].join('\n');
+  return [[...cols, 'companions', 'bills', 'payments', 'extrasTotal', 'subtotal', 'gst', 'grandTotal', 'paid', 'balance'].join(','), ...rows].join('\n');
 }
 
 // Adds a bill to an open stay, giving it the next child ID: HSL000001-01, HSL000001-02, ...
@@ -116,15 +117,19 @@ export function rupees(n: number): string {
   return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
-// Running bill for a guest. While in-house, room nights are counted up to today (minimum 1).
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Running bill for a stay. While in-house, room nights are counted up to today (minimum 1).
+// GST is added on room charges and extra bills; payments (and refunds, as negatives) are taken off.
 export function billFor(g: Guest) {
   const nights = Math.max(1, nightsBetween(g.checkInDate, g.status === 'in' ? todayStr() : g.checkOutDate));
   const roomTotal = nights * (Number(g.ratePerNight) || 0);
   const extras = g.charges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
-  const total = roomTotal + extras;
-  const advance = Number(g.advancePaid) || 0;
-  const settled = g.finalPayment?.amount ?? 0;
-  return { nights, roomTotal, extras, total, advance, settled, balance: total - advance - settled };
+  const subtotal = roomTotal + extras;
+  const gst = round2((subtotal * (g.gstRate || 0)) / 100);
+  const total = round2(subtotal + gst);
+  const paid = round2(g.payments.reduce((sum, p) => sum + p.amount, 0));
+  return { nights, roomTotal, extras, subtotal, gstRate: g.gstRate || 0, gst, total, paid, balance: round2(total - paid) };
 }
 
 // Shrinks a camera photo to a readable JPEG (max 1600px) so it stays small in storage.

@@ -1,13 +1,24 @@
 export type Gender = 'Male' | 'Female' | 'Other';
 export type Nationality = 'Indian' | 'Foreign';
-export type IdType = 'Aadhaar' | 'Passport' | 'Driving Licence' | 'Voter ID' | 'PAN' | 'Other';
+export type IdType = 'Aadhaar' | 'Passport' | 'Driving Licence' | 'Voter ID' | 'Other';
 export type PaymentMode = 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Company / OTA';
 
 export const VISA_TYPES = ['e-Tourist', 'Tourist', 'e-Business', 'Business', 'Employment', 'Student', 'Medical', 'Conference', 'Other'];
-export const ID_TYPES: IdType[] = ['Aadhaar', 'Passport', 'Driving Licence', 'Voter ID', 'PAN', 'Other'];
+export const ID_TYPES: IdType[] = ['Aadhaar', 'Passport', 'Driving Licence', 'Voter ID', 'Other'];
 export const PAYMENT_MODES: PaymentMode[] = ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Company / OTA'];
 export const PURPOSES = ['Tourism', 'Business', 'Family / Personal', 'Medical', 'Pilgrimage', 'Other'];
 export const CHARGE_CATEGORIES = ['Food', 'Room Service', 'Laundry', 'Minibar', 'Extra Bed', 'Other'];
+
+// One payment towards a stay's bill. A bill can be paid in several parts and modes.
+// A negative amount is a refund to the guest.
+export interface Payment {
+  id: string;
+  amount: number;
+  mode: PaymentMode;
+  kind: 'advance' | 'payment' | 'checkout'; // at check-in, during the stay, or at check-out
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+}
 
 // An extra bill added to the stay's account (food, laundry, etc.)
 export interface Charge {
@@ -94,14 +105,13 @@ export interface Guest {
 
   // Payment
   ratePerNight: string;
-  advancePaid: string;
-  paymentMode: PaymentMode;
+  gstRate: number; // % added on room charges and extra bills; fixed for the stay at check-in
+  payments: Payment[];
   charges: Charge[];
 
   remarks: string;
   createdAt: string; // ISO
   checkedOutAt?: string; // ISO, set on actual check-out
-  finalPayment?: { amount: number; mode: PaymentMode }; // collected (+) or refunded (−) at check-out
 }
 
 export type Housekeeping = 'clean' | 'dirty' | 'out-of-order';
@@ -123,4 +133,6 @@ export interface Settings {
   defaultCheckOutTime: string;
   roomTypes: RoomType[];
   nextGuestNo: number;
+  gstRate: number; // %, applied to new check-ins
+  gstin: string; // hotel's GST number, printed on bills
 }

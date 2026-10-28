@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
 import type { Companion, Guest, IdType, Nationality, Room, Settings } from '../types';
-import { ID_TYPES, PAYMENT_MODES, PURPOSES, VISA_TYPES } from '../types';
+import { ID_TYPES, PURPOSES, VISA_TYPES } from '../types';
 import { assignGuestNo, deletePhoto, newId, saveGuest, savePhoto, updateRoom } from '../storage';
 import { validateGuest, type Errors } from '../validation';
 import { Field, Section, Segmented } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
+import { PaymentRows } from '../components/Payments';
+import { draftTotal, toPayments, type PaymentDraft } from '../payments';
 import PlaceFields, { COUNTRY_LIST_ID, CountryList } from '../components/PlaceFields';
 import { findRoom, rateFor, ROOM_STATE_LABEL, roomViews } from '../rooms';
 import { addDays, formatAadhaar, go, nightsBetween, nowTime, rupees, todayStr } from '../utils';
@@ -22,7 +24,7 @@ function blankGuest(settings: Settings, room?: Room): Guest {
     roomNumber: room?.number ?? '', roomType: room?.type ?? settings.roomTypes[0]?.name ?? '', adults: 1, children: 0, companions: [],
     checkInDate: todayStr(), checkInTime: nowTime(),
     checkOutDate: '', checkOutTime: settings.defaultCheckOutTime,
-    ratePerNight: room ? rateFor(settings, room.type) : '', advancePaid: '', paymentMode: 'Cash', charges: [],
+    ratePerNight: room ? rateFor(settings, room.type) : '', gstRate: settings.gstRate, payments: [], charges: [],
     remarks: '', createdAt: new Date().toISOString(),
   };
 }
@@ -60,6 +62,13 @@ export default function CheckInForm({
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
   const [newPhotos, setNewPhotos] = useState<Record<string, string>>({});
+  // Advance payments taken at check-in (can be split across modes)
+  const [advanceRows, setAdvanceRows] = useState<PaymentDraft[]>(() => {
+    const saved = (existing?.payments ?? []).filter((p) => p.kind === 'advance');
+    return saved.length
+      ? saved.map((p) => ({ id: p.id, amount: String(p.amount), mode: p.mode, date: p.date, time: p.time }))
+      : [{ amount: '', mode: 'Cash' }];
+  });
 
   const occupiedRooms = useMemo(() => {
     const m = new Map<string, string>();
@@ -112,8 +121,10 @@ export default function CheckInForm({
   };
 
   const nights = nightsBetween(g.checkInDate, g.checkOutDate);
-  const total = nights * (Number(g.ratePerNight) || 0);
-  const balance = total - (Number(g.advancePaid) || 0);
+  const roomTotal = nights * (Number(g.ratePerNight) || 0);
+  const gst = Math.round(roomTotal * g.gstRate) / 100;
+  const total = roomTotal + gst;
+  const advance = draftTotal(advanceRows);
   const isIndian = g.nationality === 'Indian';
   const indianPassport = isIndian && g.idType === 'Passport';
 
@@ -128,6 +139,7 @@ export default function CheckInForm({
     }
     const clean: Guest = {
       ...g,
+      payments: [...g.payments.filter((p) => p.kind !== 'advance'), ...toPayments(advanceRows, 'advance')],
       fullName: g.fullName.trim(),
       roomNumber: g.roomNumber.trim(),
       idNumber: g.idNumber.replace(/\s/g, '').toUpperCase(),
@@ -390,16 +402,18 @@ export default function CheckInForm({
         <Field label="Rate per night (₹)" hint="Filled from the room type — change it for a discount">
           <input inputMode="decimal" value={g.ratePerNight} onChange={(e) => set('ratePerNight', e.target.value.replace(/[^\d.]/g, ''))} />
         </Field>
-        <Field label="Advance paid (₹)">
-          <input inputMode="decimal" value={g.advancePaid} onChange={(e) => set('advancePaid', e.target.value.replace(/[^\d.]/g, ''))} />
+        <Field label="GST" hint={existing ? 'Fixed for this stay' : 'Change the rate in Settings'}>
+          <input value={`${g.gstRate}%`} disabled />
         </Field>
-        <Field label="Payment mode" wide>
-          <Segmented options={PAYMENT_MODES} value={g.paymentMode} onChange={(v) => set('paymentMode', v)} />
+        <Field label="Advance received" hint="Optional. Split across modes if paid partly in cash, partly UPI, etc." wide>
+          <PaymentRows rows={advanceRows} onChange={setAdvanceRows} target={total || undefined} />
         </Field>
-        {total > 0 && (
+        {roomTotal > 0 && (
           <div className="summary wide">
-            <span>{nights} night{nights !== 1 && 's'} × ₹{g.ratePerNight} = <strong>₹{total.toLocaleString('en-IN')}</strong></span>
-            <span>Balance due: <strong>₹{balance.toLocaleString('en-IN')}</strong></span>
+            <span>
+              {nights} night{nights !== 1 && 's'} × {rupees(Number(g.ratePerNight))} + GST {g.gstRate}% = <strong>{rupees(total)}</strong>
+            </span>
+            <span>Balance due: <strong>{rupees(total - advance)}</strong></span>
           </div>
         )}
         <Field label="Remarks" wide>

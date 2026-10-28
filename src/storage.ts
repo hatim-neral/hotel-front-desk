@@ -1,7 +1,7 @@
 // All data access goes through this file. Today it uses the browser's
 // localStorage; to move to a server or a mobile database later, only
 // these functions need to change — the screens stay the same.
-import type { Guest, Room, RoomType, Settings } from './types';
+import type { Guest, Payment, PaymentMode, Room, RoomType, Settings } from './types';
 
 const GUESTS_KEY = 'hotel.guests.v1';
 const SETTINGS_KEY = 'hotel.settings.v1';
@@ -17,7 +17,23 @@ export const DEFAULT_SETTINGS: Settings = {
     { name: 'Suite', rate: '4500' },
   ],
   nextGuestNo: 1,
+  gstRate: 5,
+  gstin: '',
 };
+
+// Fields from earlier versions, converted when records are read
+type LegacyGuest = Guest & { advancePaid?: string; paymentMode?: PaymentMode; finalPayment?: { amount: number; mode: PaymentMode } };
+
+function legacyPayments(g: LegacyGuest): Payment[] {
+  const out: Payment[] = [];
+  if (Number(g.advancePaid) > 0) {
+    out.push({ id: `${g.id}-adv`, amount: Number(g.advancePaid), mode: g.paymentMode ?? 'Cash', kind: 'advance', date: g.checkInDate, time: g.checkInTime });
+  }
+  if (g.finalPayment?.amount) {
+    out.push({ id: `${g.id}-out`, amount: g.finalPayment.amount, mode: g.finalPayment.mode, kind: 'checkout', date: g.checkOutDate, time: g.checkOutTime });
+  }
+  return out;
+}
 
 export const GUEST_ID_PREFIX = 'HSL';
 const formatGuestNo = (n: number) => GUEST_ID_PREFIX + String(n).padStart(6, '0');
@@ -27,7 +43,7 @@ const guestNoValue = (no: string) => Number(no.slice(GUEST_ID_PREFIX.length)) ||
 
 function readGuests(): Guest[] {
   try {
-    const raw: Guest[] = JSON.parse(localStorage.getItem(GUESTS_KEY) || '[]');
+    const raw: LegacyGuest[] = JSON.parse(localStorage.getItem(GUESTS_KEY) || '[]');
     // Fill fields added in later versions so older records keep working
     return raw.map((g) => {
       const guestDefaults = {
@@ -36,9 +52,12 @@ function readGuests(): Guest[] {
         guestNo: '',
       };
       const companionDefaults = { nationality: g.nationality, country: g.country, passportExpiry: '', visaNumber: '', visaExpiry: '' };
+      const { advancePaid: _a, paymentMode: _m, finalPayment: _f, ...rest } = g; // eslint-disable-line @typescript-eslint/no-unused-vars
       return {
         ...guestDefaults,
-        ...g,
+        ...rest,
+        gstRate: g.gstRate ?? DEFAULT_SETTINGS.gstRate,
+        payments: g.payments ?? legacyPayments(g),
         // Bills saved before bills had their own IDs get one under the stay's bill ID
         charges: (g.charges ?? []).map((c, i) => ({ ...c, chargeNo: c.chargeNo || (g.guestNo ? `${g.guestNo}-${String(i + 1).padStart(2, '0')}` : '') })),
         idPhotos: g.idPhotos ?? [],

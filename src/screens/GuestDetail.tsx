@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import type { Charge, Guest, PaymentMode, Settings } from '../types';
-import { PAYMENT_MODES } from '../types';
+import type { Charge, Guest, Payment, Settings } from '../types';
 import { deleteGuest, saveGuest, updateRoom } from '../storage';
-import { Field, Segmented, StatusBadge } from '../components/ui';
+import { StatusBadge } from '../components/ui';
+import { PaymentLines, PaymentRows } from '../components/Payments';
+import { draftTotal, toPayments, type PaymentDraft } from '../payments';
 import IdPhotos from '../components/IdPhotos';
 import { AddCharge } from '../components/ChargeForm';
 import {
@@ -19,7 +20,12 @@ export default function GuestDetail({
 }) {
   const [showId, setShowId] = useState(false);
   const [confirmOut, setConfirmOut] = useState(!!startCheckout && g?.status === 'in');
-  const [payMode, setPayMode] = useState<PaymentMode>('Cash');
+  // Check-out settlement rows start with the whole balance in cash
+  const [payRows, setPayRows] = useState<PaymentDraft[]>(() => [
+    { amount: g ? String(Math.abs(billFor(g).balance)) : '', mode: 'Cash' },
+  ]);
+  const [recording, setRecording] = useState(false);
+  const [recordRows, setRecordRows] = useState<PaymentDraft[]>([{ amount: '', mode: 'Cash' }]);
 
   if (!g) return <p className="muted">Guest not found. <a href="#/">Go home</a></p>;
 
@@ -33,6 +39,24 @@ export default function GuestDetail({
     onChanged(msg);
   };
 
+  const savePayments = async (payments: Payment[], msg: string) => {
+    await saveGuest({ ...g, payments });
+    onChanged(msg);
+  };
+
+  const recordPayment = async () => {
+    const added = toPayments(recordRows, 'payment');
+    if (!added.length) return;
+    await savePayments([...g.payments, ...added], `Payment of ${rupees(draftTotal(recordRows))} recorded`);
+    setRecording(false);
+    setRecordRows([{ amount: '', mode: 'Cash' }]);
+  };
+
+  // Check-out needs the balance settled exactly; refunds are recorded as negative payments
+  const due = Math.abs(bill.balance);
+  const entered = draftTotal(payRows);
+  const settled = Math.abs(entered - due) < 0.01;
+
   const checkOut = async () => {
     await saveGuest({
       ...g,
@@ -40,7 +64,7 @@ export default function GuestDetail({
       checkOutDate: todayStr(),
       checkOutTime: nowTime(),
       checkedOutAt: new Date().toISOString(),
-      finalPayment: { amount: bill.balance, mode: payMode },
+      payments: [...g.payments, ...(due ? toPayments(payRows, 'checkout', bill.balance < 0 ? -1 : 1) : [])],
     });
     await updateRoom(g.roomNumber, { housekeeping: 'dirty' }); // room needs cleaning before the next guest
     setConfirmOut(false);
@@ -89,6 +113,7 @@ export default function GuestDetail({
       <div className="print-only print-head">
         <h2>{settings.hotelName}</h2>
         {settings.hotelAddress && <p>{settings.hotelAddress}</p>}
+        {settings.gstin && <p>GSTIN: {settings.gstin}</p>}
         <h3>{inHouse ? 'Guest Registration Card' : `Bill ${g.guestNo}`}</h3>
       </div>
 
@@ -136,21 +161,42 @@ export default function GuestDetail({
               <p>
                 Check out <strong>{g.fullName}</strong> from room <strong>{g.roomNumber}</strong> now?
               </p>
-              <BillSummary bill={bill} />
-              {bill.balance !== 0 && (
-                <Field label={bill.balance > 0 ? `Collect ${rupees(bill.balance)} by` : `Refund ${rupees(-bill.balance)} by`}>
-                  <Segmented options={PAYMENT_MODES} value={payMode} onChange={setPayMode} />
-                </Field>
+              <BillSummary bill={bill} payments={g.payments} />
+              {due > 0 && (
+                <div className="settle">
+                  <div className="settle-head">
+                    <strong>{bill.balance > 0 ? `Collect ${rupees(due)}` : `Refund ${rupees(due)}`}</strong>
+                    <span className={settled ? 'settle-ok' : 'settle-left'}>
+                      {settled
+                        ? '✓ Matches the balance'
+                        : entered < due
+                          ? `${rupees(due - entered)} still to enter`
+                          : `${rupees(entered - due)} more than the balance`}
+                    </span>
+                  </div>
+                  <PaymentRows rows={payRows} onChange={setPayRows} target={due} />
+                </div>
               )}
               <div className="actions">
                 <button className="btn btn-ghost" onClick={() => setConfirmOut(false)}>Cancel</button>
-                <button className="btn btn-danger btn-xl" onClick={checkOut}>
-                  {bill.balance > 0 ? `Collected ${rupees(bill.balance)} — Check Out` : 'Yes, Check Out'}
+                <button className="btn btn-danger btn-xl" onClick={checkOut} disabled={due > 0 && !settled}>
+                  {due === 0 ? 'Yes, Check Out' : bill.balance > 0 ? `Collected ${rupees(due)} — Check Out` : `Refunded ${rupees(due)} — Check Out`}
                 </button>
               </div>
             </div>
           ) : (
-            <button className="btn btn-danger btn-xl" onClick={() => setConfirmOut(true)}>Check Out</button>
+            <>
+              <button
+                className="btn btn-danger btn-xl"
+                onClick={() => {
+                  setPayRows([{ amount: String(Math.abs(bill.balance)), mode: 'Cash' }]);
+                  setConfirmOut(true);
+                }}
+              >
+                Check Out
+              </button>
+              <button className="btn btn-xl" onClick={() => setRecording(true)}>Record payment</button>
+            </>
           )}
         </div>
       )}
@@ -217,7 +263,29 @@ export default function GuestDetail({
             }}
           />
         )}
-        <BillSummary bill={bill} paymentMode={g.paymentMode} finalMode={g.finalPayment?.mode} />
+        {recording && (
+          <div className="add-charge no-print">
+            <strong>Record a payment</strong>
+            <PaymentRows rows={recordRows} onChange={setRecordRows} />
+            <div className="actions">
+              <button className="btn btn-ghost" onClick={() => setRecording(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={recordPayment} disabled={!(draftTotal(recordRows) > 0)}>
+                Save payment {draftTotal(recordRows) > 0 && rupees(draftTotal(recordRows))}
+              </button>
+            </div>
+          </div>
+        )}
+        <BillSummary
+          bill={bill}
+          payments={g.payments}
+          onRemovePayment={
+            inHouse
+              ? (p) =>
+                  confirm(`Remove the ${p.mode} payment of ${rupees(Math.abs(p.amount))}?`) &&
+                  savePayments(g.payments.filter((x) => x.id !== p.id), 'Payment removed')
+              : undefined
+          }
+        />
       </section>
 
       <section className="card">
@@ -278,26 +346,20 @@ export default function GuestDetail({
 }
 
 function BillSummary({
-  bill, paymentMode, finalMode,
+  bill, payments, onRemovePayment,
 }: {
   bill: ReturnType<typeof billFor>;
-  paymentMode?: PaymentMode;
-  finalMode?: PaymentMode;
+  payments: Payment[];
+  onRemovePayment?: (p: Payment) => void;
 }) {
   return (
     <dl className="totals">
       <div><dt>Room charges</dt><dd>{rupees(bill.roomTotal)}</dd></div>
       <div><dt>Extra bills</dt><dd>{rupees(bill.extras)}</dd></div>
+      <div className="totals-sub"><dt>Subtotal</dt><dd>{rupees(bill.subtotal)}</dd></div>
+      <div><dt>GST {bill.gstRate}%</dt><dd>{rupees(bill.gst)}</dd></div>
       <div className="totals-strong"><dt>Total</dt><dd>{rupees(bill.total)}</dd></div>
-      {bill.advance > 0 && (
-        <div><dt>Less advance{paymentMode && ` (${paymentMode})`}</dt><dd>− {rupees(bill.advance)}</dd></div>
-      )}
-      {bill.settled !== 0 && (
-        <div>
-          <dt>{bill.settled > 0 ? 'Paid at check-out' : 'Refunded at check-out'}{finalMode && ` (${finalMode})`}</dt>
-          <dd>{bill.settled > 0 ? '− ' : '+ '}{rupees(Math.abs(bill.settled))}</dd>
-        </div>
-      )}
+      <PaymentLines payments={payments} onRemove={onRemovePayment} />
       <div className={`totals-strong ${bill.balance > 0 ? 'due' : ''}`}>
         <dt>{bill.balance < 0 ? 'Refund to guest' : 'Balance due'}</dt>
         <dd>{rupees(Math.abs(bill.balance))}</dd>
