@@ -1,4 +1,4 @@
-import type { Payment, PaymentMode } from './types';
+import type { BillTo, Payment, PaymentMode } from './types';
 import { newId } from './storage';
 import { nowTime, todayStr } from './utils';
 
@@ -26,3 +26,5 @@ export function toPayments(rows: PaymentDraft[], kind: Payment['kind'], sign = 1
       time: r.time ?? nowTime(),
     }));
 }
+
+export const emptyBillTo = (): BillTo => ({ company: '', gstin: '', address: '' });

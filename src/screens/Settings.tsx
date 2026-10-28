@@ -4,6 +4,7 @@ import { assignGuestNo, deleteGuest, resetGuestCounter, saveGuest, saveRooms, sa
 import { buildSampleGuests, isSample } from '../sampleData';
 import { findRoom } from '../rooms';
 import { Field, Section } from '../components/ui';
+import { isValidGstin } from '../validation';
 import { rupees, toCsv, todayStr } from '../utils';
 
 export default function SettingsScreen({
@@ -18,6 +19,7 @@ export default function SettingsScreen({
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (s.gstin && !isValidGstin(s.gstin)) return;
     await saveSettings({ ...s, roomTypes: settings.roomTypes });
     onSaved('Settings saved');
   };
@@ -77,7 +79,11 @@ export default function SettingsScreen({
               onChange={(e) => setS({ ...s, gstRate: Math.min(100, Number(e.target.value.replace(/[^\d.]/g, '')) || 0) })}
             />
           </Field>
-          <Field label="Hotel GSTIN" hint="Printed on bills (optional)">
+          <Field
+            label="Hotel GST number (GSTIN)"
+            hint="Printed on every bill"
+            error={s.gstin && !isValidGstin(s.gstin) ? 'GST number should be 15 characters, e.g. 27ABCDE1234F1Z5' : undefined}
+          >
             <input value={s.gstin} maxLength={15} onChange={(e) => setS({ ...s, gstin: e.target.value.toUpperCase() })} />
           </Field>
           <div className="wide">

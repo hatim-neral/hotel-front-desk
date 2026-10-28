@@ -43,6 +43,19 @@ export function idNumberError(idType: string, value: string): string | undefined
   }
 }
 
+// GSTIN: 2-digit state code, 10-character PAN, entity number, 'Z', check character
+export function isValidGstin(value: string): boolean {
+  return /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(value.trim().toUpperCase());
+}
+
+export function billToErrors(b: { company: string; gstin: string }): Errors {
+  const e: Errors = {};
+  if (!b.company.trim()) e['billTo.company'] = 'Enter the company name';
+  if (!b.gstin.trim()) e['billTo.gstin'] = 'Enter the company GST number';
+  else if (!isValidGstin(b.gstin)) e['billTo.gstin'] = 'GST number should be 15 characters, e.g. 27ABCDE1234F1Z5';
+  return e;
+}
+
 export type Errors = Partial<Record<string, string>>;
 
 export function validateGuest(g: Guest, occupiedRooms: Map<string, string>, rooms: Room[] = []): Errors {
@@ -102,6 +115,8 @@ export function validateGuest(g: Guest, occupiedRooms: Map<string, string>, room
   if (g.checkOutDate && `${g.checkOutDate}T${g.checkOutTime || '23:59'}` <= `${g.checkInDate}T${g.checkInTime}`) {
     e.checkOutDate = 'Check-out must be after check-in';
   }
+
+  if (g.billTo) Object.assign(e, billToErrors(g.billTo));
 
   // Other adults: Indian guests need only a name; foreign guests need everything (Form C)
   g.companions.forEach((c, i) => {

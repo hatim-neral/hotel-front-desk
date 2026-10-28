@@ -6,7 +6,8 @@ import { validateGuest, type Errors } from '../validation';
 import { Field, Section, Segmented } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
 import { PaymentRows } from '../components/Payments';
-import { draftTotal, toPayments, type PaymentDraft } from '../payments';
+import { draftTotal, emptyBillTo, toPayments, type PaymentDraft } from '../payments';
+import CompanyFields from '../components/CompanyFields';
 import PlaceFields, { COUNTRY_LIST_ID, CountryList } from '../components/PlaceFields';
 import { findRoom, rateFor, ROOM_STATE_LABEL, roomViews } from '../rooms';
 import { addDays, formatAadhaar, go, nightsBetween, nowTime, rupees, todayStr } from '../utils';
@@ -141,6 +142,7 @@ export default function CheckInForm({
       ...g,
       payments: [...g.payments.filter((p) => p.kind !== 'advance'), ...toPayments(advanceRows, 'advance')],
       fullName: g.fullName.trim(),
+      billTo: g.billTo && { ...g.billTo, company: g.billTo.company.trim(), gstin: g.billTo.gstin.trim().toUpperCase() },
       roomNumber: g.roomNumber.trim(),
       idNumber: g.idNumber.replace(/\s/g, '').toUpperCase(),
       passportNumber: g.passportNumber.trim().toUpperCase(),
@@ -405,6 +407,14 @@ export default function CheckInForm({
         <Field label="GST" hint={existing ? 'Fixed for this stay' : 'Change the rate in Settings'}>
           <input value={`${g.gstRate}%`} disabled />
         </Field>
+        <Field label="Who pays the bill?" wide>
+          <Segmented
+            options={['Guest', 'Company'] as const}
+            value={g.billTo ? 'Company' : 'Guest'}
+            onChange={(v) => update({ billTo: v === 'Company' ? (existing?.billTo ?? emptyBillTo()) : undefined })}
+          />
+        </Field>
+        {g.billTo && <CompanyFields value={g.billTo} onChange={(billTo) => update({ billTo })} errors={errors} />}
         <Field label="Advance received" hint="Optional. Split across modes if paid partly in cash, partly UPI, etc." wide>
           <PaymentRows rows={advanceRows} onChange={setAdvanceRows} target={total || undefined} />
         </Field>

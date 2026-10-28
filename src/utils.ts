@@ -100,11 +100,12 @@ export function toCsv(guests: Guest[]): string {
       ...cols.map((c) => esc(g[c])),
       esc(g.companions.map((c) => `${c.name} (${c.nationality === 'Foreign' ? `${c.country}, Passport` : c.idType} ${c.idNumber})`).join('; ')),
       esc(g.charges.map((c) => `${c.chargeNo} ${c.category} ₹${c.amount}${c.billNo ? ` (slip ${c.billNo})` : ''}`).join('; ')),
+      esc(g.billTo ? `${g.billTo.company} (GSTIN ${g.billTo.gstin})` : ''),
       esc(g.payments.map((p) => `${p.amount < 0 ? 'Refund' : 'Paid'} ${p.mode} ₹${Math.abs(p.amount)} (${p.date})`).join('; ')),
       b.extras, b.subtotal, b.gst, b.total, b.paid, b.balance,
     ].join(',');
   });
-  return [[...cols, 'companions', 'bills', 'payments', 'extrasTotal', 'subtotal', 'gst', 'grandTotal', 'paid', 'balance'].join(','), ...rows].join('\n');
+  return [[...cols, 'companions', 'bills', 'billedTo', 'payments', 'extrasTotal', 'subtotal', 'gst', 'grandTotal', 'paid', 'balance'].join(','), ...rows].join('\n');
 }
 
 // Adds a bill to an open stay, giving it the next child ID: HSL000001-01, HSL000001-02, ...
@@ -114,7 +115,7 @@ export function withCharge(g: Guest, c: Charge): Guest {
 }
 
 export function rupees(n: number): string {
-  return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;

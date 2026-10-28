@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import type { Charge, Guest, Payment, Settings } from '../types';
+import type { BillTo, Charge, Guest, Payment, Settings } from '../types';
 import { deleteGuest, saveGuest, updateRoom } from '../storage';
 import { StatusBadge } from '../components/ui';
 import { PaymentLines, PaymentRows } from '../components/Payments';
-import { draftTotal, toPayments, type PaymentDraft } from '../payments';
+import { draftTotal, emptyBillTo, toPayments, type PaymentDraft } from '../payments';
+import CompanyFields from '../components/CompanyFields';
+import { billToErrors } from '../validation';
 import IdPhotos from '../components/IdPhotos';
 import { AddCharge } from '../components/ChargeForm';
 import {
@@ -26,6 +28,9 @@ export default function GuestDetail({
   ]);
   const [recording, setRecording] = useState(false);
   const [recordRows, setRecordRows] = useState<PaymentDraft[]>([{ amount: '', mode: 'Cash' }]);
+  const [editingCompany, setEditingCompany] = useState(false);
+  const [company, setCompany] = useState<BillTo>(() => g?.billTo ?? emptyBillTo());
+  const [companyTried, setCompanyTried] = useState(false);
 
   if (!g) return <p className="muted">Guest not found. <a href="#/">Go home</a></p>;
 
@@ -57,6 +62,22 @@ export default function GuestDetail({
   const entered = draftTotal(payRows);
   const settled = Math.abs(entered - due) < 0.01;
 
+  // A company paying any part of the bill needs its GST details on the bill
+  const COMPANY = 'Company / OTA';
+  const companyErrs = companyTried ? billToErrors(company) : {};
+  const companyValid = !Object.keys(billToErrors(company)).length;
+  const companyPays =
+    g.payments.some((p) => p.mode === COMPANY) || (due > 0 && payRows.some((r) => r.mode === COMPANY && Number(r.amount) > 0));
+  const needsCompany = companyPays && !g.billTo;
+
+  const saveCompany = async () => {
+    setCompanyTried(true);
+    if (!companyValid) return;
+    await saveGuest({ ...g, billTo: { ...company, company: company.company.trim() } });
+    setEditingCompany(false);
+    onChanged('Company billing details saved');
+  };
+
   const checkOut = async () => {
     await saveGuest({
       ...g,
@@ -65,6 +86,7 @@ export default function GuestDetail({
       checkOutTime: nowTime(),
       checkedOutAt: new Date().toISOString(),
       payments: [...g.payments, ...(due ? toPayments(payRows, 'checkout', bill.balance < 0 ? -1 : 1) : [])],
+      billTo: g.billTo ?? (needsCompany ? { ...company, company: company.company.trim() } : undefined),
     });
     await updateRoom(g.roomNumber, { housekeeping: 'dirty' }); // room needs cleaning before the next guest
     setConfirmOut(false);
@@ -115,6 +137,13 @@ export default function GuestDetail({
         {settings.hotelAddress && <p>{settings.hotelAddress}</p>}
         {settings.gstin && <p>GSTIN: {settings.gstin}</p>}
         <h3>{inHouse ? 'Guest Registration Card' : `Bill ${g.guestNo}`}</h3>
+        {g.billTo && (
+          <p className="print-billto">
+            Billed to: <strong>{g.billTo.company}</strong> · GSTIN {g.billTo.gstin}
+            {g.billTo.address && <> · {g.billTo.address}</>}
+            <br />Guest: {g.fullName}
+          </p>
+        )}
       </div>
 
       <div className="detail-head">
@@ -177,9 +206,15 @@ export default function GuestDetail({
                   <PaymentRows rows={payRows} onChange={setPayRows} target={due} />
                 </div>
               )}
+              {needsCompany && (
+                <div className="settle">
+                  <strong>Company paying — GST details for the bill</strong>
+                  <CompanyFields value={company} onChange={(v) => { setCompany(v); setCompanyTried(true); }} errors={companyErrs} />
+                </div>
+              )}
               <div className="actions">
                 <button className="btn btn-ghost" onClick={() => setConfirmOut(false)}>Cancel</button>
-                <button className="btn btn-danger btn-xl" onClick={checkOut} disabled={due > 0 && !settled}>
+                <button className="btn btn-danger btn-xl" onClick={checkOut} disabled={(due > 0 && !settled) || (needsCompany && !companyValid)}>
                   {due === 0 ? 'Yes, Check Out' : bill.balance > 0 ? `Collected ${rupees(due)} — Check Out` : `Refunded ${rupees(due)} — Check Out`}
                 </button>
               </div>
@@ -205,6 +240,42 @@ export default function GuestDetail({
         <h2 className="card-title">
           Bill {g.guestNo} <span className={`badge ${inHouse ? 'badge-in' : 'badge-out'}`}>{inHouse ? 'Open' : 'Closed'}</span>
         </h2>
+        {editingCompany ? (
+          <div className="add-charge no-print">
+            <strong>Company paying this bill</strong>
+            <CompanyFields value={company} onChange={setCompany} errors={companyErrs} />
+            <div className="actions">
+              <button className="btn btn-ghost" onClick={() => setEditingCompany(false)}>Cancel</button>
+              {g.billTo && (
+                <button
+                  className="btn btn-ghost danger-text"
+                  onClick={async () => {
+                    await saveGuest({ ...g, billTo: undefined });
+                    setEditingCompany(false);
+                    onChanged('Bill changed back to the guest');
+                  }}
+                >
+                  Guest pays instead
+                </button>
+              )}
+              <button className="btn btn-primary" onClick={saveCompany}>Save company details</button>
+            </div>
+          </div>
+        ) : g.billTo ? (
+          <div className="billto no-print">
+            <span className="muted">Billed to</span>
+            <strong>{g.billTo.company}</strong>
+            <span className="mono">GSTIN {g.billTo.gstin}</span>
+            {g.billTo.address && <span className="muted">{g.billTo.address}</span>}
+            {inHouse && <button className="link" onClick={() => setEditingCompany(true)}>Edit</button>}
+          </div>
+        ) : (
+          inHouse && (
+            <button className="link no-print billto-add" onClick={() => setEditingCompany(true)}>
+              + Company paying? Add company GST details
+            </button>
+          )
+        )}
         <table className="bill">
           <thead>
             <tr>

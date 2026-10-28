@@ -527,6 +527,13 @@ button.quick-result { width: 100%; border: none; background: none; font: inherit
 .settle-ok { color: var(--ok); font-weight: 600; }
 .settle-left { color: var(--warn); font-weight: 600; }
 
+.billto {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: -4px 0 14px; padding: 10px 12px;
+  border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border);
+}
+.billto-add { display: block; margin: -4px 0 14px; }
+.print-billto { margin-top: 10px !important; text-align: left; border: 1px solid #999; padding: 8px 10px; }
+
 .print-only { display: none; }
 
 /* ---------- Responsive ---------- */

@@ -20,6 +20,13 @@ export interface Payment {
   time: string; // HH:MM
 }
 
+// The company paying for a stay; its GST number goes on the bill.
+export interface BillTo {
+  company: string;
+  gstin: string;
+  address: string;
+}
+
 // An extra bill added to the stay's account (food, laundry, etc.)
 export interface Charge {
   id: string;
@@ -107,6 +114,7 @@ export interface Guest {
   ratePerNight: string;
   gstRate: number; // % added on room charges and extra bills; fixed for the stay at check-in
   payments: Payment[];
+  billTo?: BillTo; // set when a company pays the bill
   charges: Charge[];
 
   remarks: string;
