@@ -11,7 +11,7 @@ import Rooms from './screens/Rooms';
 import AddBill from './screens/AddBill';
 import type { BoardFilter } from './components/RoomBoard';
 
-// Tiny hash router: #/, #/checkin, #/checkin/:room, #/checkout, #/rooms, #/rooms/:filter, #/bill, #/bill/:guestId, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/settings
+// Tiny hash router: #/, #/checkin, #/checkin/:room, #/again/:id, #/checkout, #/rooms, #/rooms/:filter, #/bill, #/bill/:guestId, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/settings
 function useRoute() {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -82,6 +82,11 @@ export default function App() {
         <CheckInForm key={param} guests={guests} rooms={rooms} settings={settings} initialRoom={param && decodeURIComponent(param)} onSaved={notify} />
       );
       break;
+    case 'again':
+      screen = (
+        <CheckInForm key={`again-${param}`} guests={guests} rooms={rooms} settings={settings} from={guests.find((g) => g.id === param)} onSaved={notify} />
+      );
+      break;
     case 'edit':
       screen = (
         <CheckInForm
@@ -124,7 +129,7 @@ export default function App() {
 
   const nav = [
     { path: '', label: 'Front Desk', active: !page },
-    { path: 'checkin', label: '+ Check-In', active: page === 'checkin', primary: true },
+    { path: 'checkin', label: '+ Check-In', active: page === 'checkin' || page === 'again', primary: true },
     { path: 'bill', label: 'Add Bill', active: page === 'bill' },
     { path: 'checkout', label: 'Check-Out', active: page === 'checkout' },
     { path: 'rooms', label: 'Rooms', active: page === 'rooms' },

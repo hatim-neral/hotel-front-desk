@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Companion, Guest, IdType, Nationality, Room, Settings } from '../types';
 import { ID_TYPES, PURPOSES, VISA_TYPES } from '../types';
-import { assignGuestNo, deletePhoto, newId, saveGuest, savePhoto, updateRoom } from '../storage';
+import { assignGuestNo, deletePhoto, getPhoto, newId, saveGuest, savePhoto, updateRoom } from '../storage';
 import { validateGuest, type Errors } from '../validation';
 import { Field, Section, Segmented } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
@@ -10,7 +10,7 @@ import { draftTotal, emptyBillTo, toPayments, type PaymentDraft } from '../payme
 import CompanyFields from '../components/CompanyFields';
 import PlaceFields, { COUNTRY_LIST_ID, CountryList } from '../components/PlaceFields';
 import { findRoom, rateFor, ROOM_STATE_LABEL, roomViews } from '../rooms';
-import { addDays, formatAadhaar, go, nightsBetween, nowTime, rupees, todayStr } from '../utils';
+import { addDays, formatAadhaar, formatDate, go, nightsBetween, nowTime, rupees, todayStr } from '../utils';
 
 function blankGuest(settings: Settings, room?: Room): Guest {
   return {
@@ -30,6 +30,54 @@ function blankGuest(settings: Settings, room?: Room): Guest {
   };
 }
 
+// A new stay for someone who has stayed before: personal, ID, address and company details carry
+// over; the stay, bill and payments start fresh. Same room if it is free, otherwise the room is left blank.
+function returningStay(prev: Guest, settings: Settings, rooms: Room[], guests: Guest[]): { guest: Guest; roomNote: string } {
+  const room = findRoom(rooms, prev.roomNumber);
+  const takenBy = guests.find((x) => x.status === 'in' && x.roomNumber.toLowerCase() === prev.roomNumber.toLowerCase());
+  const free = room && !takenBy && room.housekeeping !== 'out-of-order';
+  const fresh = blankGuest(settings, free ? room : undefined);
+  const guest: Guest = {
+    ...prev,
+    id: fresh.id, guestNo: '', status: 'in', idPhotos: [],
+    roomNumber: fresh.roomNumber, roomType: fresh.roomType, ratePerNight: fresh.ratePerNight, gstRate: fresh.gstRate,
+    checkInDate: fresh.checkInDate, checkInTime: fresh.checkInTime, checkOutDate: '', checkOutTime: fresh.checkOutTime,
+    payments: [], charges: [], remarks: '', createdAt: fresh.createdAt, checkedOutAt: undefined,
+  };
+  const roomNote = free
+    ? `Same room ${prev.roomNumber} is free${room.housekeeping === 'dirty' ? ' (not cleaned yet)' : ''} — change it below if the guest wants another.`
+    : `Last room ${prev.roomNumber} is ${takenBy ? 'occupied' : 'not available'} — pick another room below.`;
+  return { guest, roomNote };
+}
+
+// Does this stay match a mobile number, bill ID (HSL…, or a child bill ID) or ID / passport number?
+function matchesReturning(g: Guest, q: string): boolean {
+  const s = q.replace(/\s/g, '').toUpperCase();
+  if (s.length < 4) return false;
+  const digits = s.replace(/\D/g, '');
+  return (
+    g.guestNo.toUpperCase() === s.split('-')[0] ||
+    (digits.length >= 10 && digits.length === s.replace(/^\+/, '').length && g.phone.replace(/\D/g, '').endsWith(digits.slice(-10))) ||
+    g.idNumber.replace(/\s/g, '').toUpperCase() === s ||
+    g.passportNumber.toUpperCase() === s
+  );
+}
+
+const personKey = (g: Guest) => (g.idNumber || g.passportNumber || g.phone).replace(/\s/g, '').toUpperCase();
+
+// Checked-out guests matching the lookup: latest stay per person; people in-house right now are left out.
+function findReturning(guests: Guest[], q: string): Guest[] {
+  const inHouse = new Set(guests.filter((g) => g.status === 'in').map(personKey));
+  const latest = new Map<string, Guest>();
+  guests
+    .filter((g) => g.status === 'out' && !inHouse.has(personKey(g)) && matchesReturning(g, q))
+    .forEach((g) => {
+      const cur = latest.get(personKey(g));
+      if (!cur || g.createdAt > cur.createdAt) latest.set(personKey(g), g);
+    });
+  return [...latest.values()].slice(0, 5);
+}
+
 function blankCompanion(nationality: Nationality, country: string): Companion {
   const indian = nationality === 'Indian';
   return {
@@ -39,17 +87,23 @@ function blankCompanion(nationality: Nationality, country: string): Companion {
 }
 
 export default function CheckInForm({
-  guests, rooms, settings, existing, initialRoom, onSaved,
+  guests, rooms, settings, existing, initialRoom, from, onSaved,
 }: {
   guests: Guest[];
   rooms: Room[];
   settings: Settings;
   existing?: Guest;
   initialRoom?: string; // opened from the room chart: pre-select this room
+  from?: Guest; // "Check in again": start from this past stay
   onSaved: (msg: string) => void;
 }) {
+  const [start] = useState(() => (from && !existing ? returningStay(from, settings, rooms, guests) : undefined));
+  const [roomNote, setRoomNote] = useState(start?.roomNote ?? '');
+  const [returnedFrom, setReturnedFrom] = useState(from && !existing ? from : undefined);
   const [g, setG] = useState<Guest>(() =>
-    existing
+    start
+      ? start.guest
+      : existing
       ? {
           ...existing,
           // Older records may have a different number of companion forms than adults
@@ -70,6 +124,36 @@ export default function CheckInForm({
       ? saved.map((p) => ({ id: p.id, amount: String(p.amount), mode: p.mode, date: p.date, time: p.time }))
       : [{ amount: '', mode: 'Cash' }];
   });
+
+  // Copy the ID photos of the past stay under new ids, so deleting either record keeps the other's photos
+  const copyPhotos = async (prev: Guest) => {
+    for (const old of prev.idPhotos) {
+      const url = await getPhoto(old);
+      if (!url) continue;
+      const id = newId();
+      setNewPhotos((p) => ({ ...p, [id]: url }));
+      setG((cur) => ({ ...cur, idPhotos: [...cur.idPhotos, id] }));
+    }
+  };
+  const copiedStart = useRef(false);
+  useEffect(() => {
+    if (!start || !from || copiedStart.current) return;
+    copiedStart.current = true;
+    copyPhotos(from);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fillFrom = (prev: Guest) => {
+    const r = returningStay(prev, settings, rooms, guests);
+    setG(r.guest);
+    setRoomNote(r.roomNote);
+    setReturnedFrom(prev);
+    setNewPhotos({});
+    setErrors({});
+    setSubmitted(false);
+    setAdvanceRows([{ amount: '', mode: 'Cash' }]);
+    copyPhotos(prev);
+  };
 
   const occupiedRooms = useMemo(() => {
     const m = new Map<string, string>();
@@ -197,8 +281,37 @@ export default function CheckInForm({
 
   return (
     <form className="stack form" onSubmit={submit} noValidate>
-      <h1>{existing ? 'Edit Guest' : 'New Check-In'}</h1>
+      <h1>{existing ? 'Edit Guest' : returnedFrom ? 'Check In Again' : 'New Check-In'}</h1>
       <CountryList />
+
+      {!existing && (
+        returnedFrom ? (
+          <div className="returning-banner">
+            <span>
+              Details filled from <strong>{returnedFrom.fullName}</strong>'s last stay ({returnedFrom.guestNo}, room {returnedFrom.roomNumber},{' '}
+              {formatDate(returnedFrom.checkInDate)}). A new bill ID is given on check-in.
+              {roomNote && <><br />{roomNote}</>}
+            </span>
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setG(blankGuest(settings));
+                setReturnedFrom(undefined);
+                setRoomNote('');
+                setNewPhotos({});
+                setErrors({});
+                setSubmitted(false);
+                if (location.hash !== '#/checkin') go('checkin');
+              }}
+            >
+              Start blank
+            </button>
+          </div>
+        ) : (
+          <ReturningLookup guests={guests} onPick={fillFrom} />
+        )
+      )}
 
       <Section title={num() + 'Guest details'}>
         <Field label="Full name (as on ID)" required error={errors.fullName} wide>
@@ -441,6 +554,54 @@ export default function CheckInForm({
         </button>
       </div>
     </form>
+  );
+}
+
+// "Stayed before?" box: type a mobile number, old bill ID or ID number to fill the whole form.
+function ReturningLookup({ guests, onPick }: { guests: Guest[]; onPick: (g: Guest) => void }) {
+  const [q, setQ] = useState('');
+  const matches = findReturning(guests, q);
+  // Typed someone who is in-house right now (by any of their stays)?
+  const hitKeys = new Set(matches.length ? [] : guests.filter((g) => matchesReturning(g, q)).map(personKey));
+  const here = guests.find((g) => g.status === 'in' && hitKeys.has(personKey(g)));
+  return (
+    <div className="returning no-print">
+      <input
+        className="search"
+        type="search"
+        placeholder="Stayed before? Mobile number, old bill ID (HSL…) or Aadhaar / passport no."
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (matches[0]) onPick(matches[0]);
+          }
+        }}
+        aria-label="Find returning guest"
+      />
+      {q.replace(/\s/g, '').length >= 4 && (
+        matches.length ? (
+          <ul className="returning-list">
+            {matches.map((m) => (
+              <li key={m.id}>
+                <span className="grow">
+                  <strong>{m.fullName}</strong>
+                  <span className="muted"> · {m.phone} · last stay {formatDate(m.checkInDate)}, room {m.roomNumber} ({m.guestNo})</span>
+                </span>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => onPick(m)}>Fill details</button>
+              </li>
+            ))}
+          </ul>
+        ) : here ? (
+          <p className="muted small">
+            {here.fullName} is already checked in to room {here.roomNumber} (<a href={`#/guest/${here.id}`}>{here.guestNo}</a>).
+          </p>
+        ) : (
+          <p className="muted small">No past guest found — fill the form below. (Full mobile number, bill ID or ID number needed.)</p>
+        )
+      )}
+    </div>
   );
 }
 

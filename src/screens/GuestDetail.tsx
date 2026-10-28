@@ -235,6 +235,11 @@ export default function GuestDetail({
           )}
         </div>
       )}
+      {!inHouse && (
+        <div className="actions no-print">
+          <a className="btn btn-primary btn-xl" href={`#/again/${g.id}`}>Check in again</a>
+        </div>
+      )}
 
       <section className="card">
         <h2 className="card-title">

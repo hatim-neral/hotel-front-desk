@@ -45,7 +45,7 @@ export default function Dashboard({ guests, rooms }: { guests: Guest[]; rooms: R
       <div className="main-actions">
         <a className="action-tile action-in" href="#/checkin">
           <span className="action-icon">＋</span>
-          <span><strong>Check-In</strong><span className="muted">New guest</span></span>
+          <span><strong>Check-In</strong><span className="muted">New or returning guest</span></span>
         </a>
         <a className="action-tile action-bill" href="#/bill">
           <span className="action-icon">₹</span>
