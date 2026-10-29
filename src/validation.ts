@@ -1,4 +1,4 @@
-import type { Guest, Room } from './types';
+import type { BillTo, Guest, Room } from './types';
 import { todayStr } from './utils';
 
 // Verhoeff checksum — the last digit of every real Aadhaar number is a Verhoeff check digit.
@@ -48,11 +48,13 @@ export function isValidGstin(value: string): boolean {
   return /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(value.trim().toUpperCase());
 }
 
-export function billToErrors(b: { company: string; gstin: string }): Errors {
+export function billToErrors(b: BillTo): Errors {
   const e: Errors = {};
   if (!b.company.trim()) e['billTo.company'] = 'Enter the company name';
   if (!b.gstin.trim()) e['billTo.gstin'] = 'Enter the company GST number';
   else if (!isValidGstin(b.gstin)) e['billTo.gstin'] = 'GST number should be 15 characters, e.g. 27ABCDE1234F1Z5';
+  if (b.phone && b.phone.replace(/\D/g, '').length < 10) e['billTo.phone'] = 'Phone number looks too short';
+  if (b.email && !/^\S+@\S+\.\S+$/.test(b.email)) e['billTo.email'] = 'Email looks wrong';
   return e;
 }
 

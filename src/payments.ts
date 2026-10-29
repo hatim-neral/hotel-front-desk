@@ -27,4 +27,4 @@ export function toPayments(rows: PaymentDraft[], kind: Payment['kind'], sign = 1
     }));
 }
 
-export const emptyBillTo = (): BillTo => ({ company: '', gstin: '', address: '' });
+export const emptyBillTo = (): BillTo => ({ company: '', gstin: '', address: '', contactPerson: '', phone: '', email: '' });

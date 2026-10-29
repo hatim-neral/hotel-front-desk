@@ -2,8 +2,8 @@ import { useState } from 'react';
 import type { Guest, Room, RoomType, Settings } from '../types';
 import { assignGuestNo, deleteGuest, resetGuestCounter, saveGuest, saveRooms, saveSettings, updateRoom } from '../storage';
 import { buildSampleGuests, isSample } from '../sampleData';
-import { findRoom } from '../rooms';
-import { Field, Section } from '../components/ui';
+import { findRoom, parseRoomList, type RoomImport } from '../rooms';
+import { Field, Section, Segmented } from '../components/ui';
 import { isValidGstin } from '../validation';
 import { rupees, toCsv, todayStr } from '../utils';
 
@@ -92,8 +92,9 @@ export default function SettingsScreen({
         </Section>
       </form>
 
-      <RoomTypesEditor settings={settings} rooms={rooms} onSaved={onSaved} />
+      <RoomTypesEditor key={JSON.stringify(settings.roomTypes)} settings={settings} rooms={rooms} onSaved={onSaved} />
       <RoomsEditor settings={settings} rooms={rooms} guests={guests} onSaved={onSaved} />
+      <RoomListUpload settings={settings} rooms={rooms} onSaved={onSaved} />
 
       <Section title="Sample guests (for practice)">
         <p className="wide muted">
@@ -133,7 +134,7 @@ function RoomTypesEditor({ settings, rooms, onSaved }: { settings: Settings; roo
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = types.map((t) => ({ name: t.name.trim(), rate: t.rate.trim() })).filter((t) => t.name);
+    const clean = types.map((t) => ({ name: t.name.trim(), rate: t.rate.trim(), ac: t.ac })).filter((t) => t.name);
     const names = clean.map((t) => t.name.toLowerCase());
     if (names.some((n, i) => names.indexOf(n) !== i)) return setError('Two room types have the same name.');
     if (!clean.length) return setError('Add at least one room type.');
@@ -164,6 +165,9 @@ function RoomTypesEditor({ settings, rooms, onSaved }: { settings: Settings; roo
                 <Field label="Price per night (₹)">
                   <input inputMode="decimal" value={t.rate} onChange={(e) => setType(i, { rate: e.target.value.replace(/[^\d.]/g, '') })} />
                 </Field>
+                <Field label="Cooling">
+                  <Segmented options={['AC', 'Non-AC'] as const} value={t.ac ? 'AC' : 'Non-AC'} onChange={(v) => setType(i, { ac: v === 'AC' })} />
+                </Field>
                 <span className="muted small type-used">{used} room(s)</span>
                 <button
                   type="button"
@@ -180,7 +184,7 @@ function RoomTypesEditor({ settings, rooms, onSaved }: { settings: Settings; roo
         </div>
         {error && <p className="wide field-error">{error}</p>}
         <div className="wide actions">
-          <button type="button" className="btn" onClick={() => setTypes([...types, { name: '', rate: '' }])}>+ Add room type</button>
+          <button type="button" className="btn" onClick={() => setTypes([...types, { name: '', rate: '', ac: true }])}>+ Add room type</button>
           <button type="submit" className="btn btn-primary">Save prices</button>
         </div>
       </Section>
@@ -256,7 +260,8 @@ function RoomsEditor({
 
       <div className="wide form room-list">
         {rooms.map((r) => {
-          const rate = settings.roomTypes.find((t) => t.name === r.type)?.rate;
+          const t = settings.roomTypes.find((x) => x.name === r.type);
+          const rate = t?.rate;
           return (
             <div key={r.number} className="room-list-row">
               <span className="room">{r.number}</span>
@@ -264,7 +269,9 @@ function RoomsEditor({
                 {!typeNames.includes(r.type) && <option>{r.type}</option>}
                 {typeNames.map((t) => <option key={t}>{t}</option>)}
               </select>
-              <span className="muted small">{rate ? `${rupees(Number(rate))}/night` : 'No price set'}</span>
+              <span className="muted small">
+                {t && (t.ac ? 'AC' : 'Non-AC')} · {rate ? `${rupees(Number(rate))}/night` : 'No price set'}
+              </span>
               <button
                 type="button"
                 className="btn btn-ghost danger-text"
@@ -278,6 +285,79 @@ function RoomsEditor({
           );
         })}
       </div>
+    </Section>
+  );
+}
+
+// Upload or paste the whole room list at once: room number, type, AC / Non-AC, tariff.
+function RoomListUpload({ settings, rooms, onSaved }: { settings: Settings; rooms: Room[]; onSaved: (msg: string) => void }) {
+  const [text, setText] = useState('');
+  const [preview, setPreview] = useState<RoomImport | null>(null);
+  const [fileError, setFileError] = useState('');
+
+  const read = (value: string) => {
+    setText(value);
+    setPreview(value.trim() ? parseRoomList(value, settings, rooms) : null);
+  };
+
+  const readFile = async (file?: File) => {
+    setFileError('');
+    if (!file) return;
+    if (/\.xlsx?$/i.test(file.name)) {
+      setFileError('Excel files: choose File → Save As → CSV in Excel first, or copy the cells and paste them in the box.');
+      return;
+    }
+    read(await file.text());
+  };
+
+  const apply = async () => {
+    if (!preview) return;
+    await saveSettings({ ...settings, roomTypes: preview.roomTypes });
+    await saveRooms(preview.rooms);
+    setText('');
+    setPreview(null);
+    onSaved(`Room list uploaded: ${preview.added} added, ${preview.updated} changed`);
+  };
+
+  return (
+    <Section title="Upload room list">
+      <p className="wide muted small">
+        One room per line: <strong>Room no, Room type, AC or Non-AC, Tariff</strong> — e.g. <code>101, Deluxe, AC, 2500</code>.
+        Copy the columns from Excel and paste them here, or upload a CSV file. Rooms already in the list get the new type;
+        new rooms are added; nothing is deleted.
+      </p>
+      <Field label="Paste room list" wide>
+        <textarea
+          rows={6}
+          className="mono"
+          value={text}
+          placeholder={'101, Standard, Non-AC, 1500\n102, Standard, Non-AC, 1500\n201, Deluxe, AC, 2500'}
+          onChange={(e) => read(e.target.value)}
+        />
+      </Field>
+      <Field label="…or upload a CSV file" error={fileError} wide>
+        <input type="file" accept=".csv,.txt,.xls,.xlsx,text/csv" onChange={(e) => readFile(e.target.files?.[0])} />
+      </Field>
+      {preview && (
+        <div className="wide settle">
+          <strong>
+            {preview.added} new room(s), {preview.updated} room(s) change type
+            {preview.newTypes.length > 0 && `, new room type(s): ${preview.newTypes.join(', ')}`}
+          </strong>
+          {preview.problems.length > 0 && (
+            <ul className="field-error import-problems">
+              {preview.problems.slice(0, 10).map((p) => <li key={p}>{p}</li>)}
+              {preview.problems.length > 10 && <li>…and {preview.problems.length - 10} more</li>}
+            </ul>
+          )}
+          <div className="actions">
+            <button type="button" className="btn btn-ghost" onClick={() => read('')}>Clear</button>
+            <button type="button" className="btn btn-primary" onClick={apply} disabled={!text.trim()}>
+              Save room list
+            </button>
+          </div>
+        </div>
+      )}
     </Section>
   );
 }

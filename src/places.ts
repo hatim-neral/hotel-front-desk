@@ -1,6 +1,6 @@
 // Countries, states and cities. The data is generated at build time by
 // scripts/build-places.mjs and fetched one country at a time, so the app stays small.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type Regions = Record<string, string[]>; // state name -> city names
 
@@ -43,8 +43,9 @@ export function useCountries(): string[] {
   return list;
 }
 
-// States of the chosen country, and cities of the chosen state.
-export function useRegions(country: string, state: string): { states: string[]; cities: string[] } {
+// States of the chosen country, cities of the chosen state, and every city of the country
+// (with its state) so a city can be picked first and fill in its state.
+export function useRegions(country: string, state: string): { states: string[]; cities: string[]; allCities: [string, string][] } {
   const [regions, setRegions] = useState<Regions>({});
   useEffect(() => {
     let current = true;
@@ -54,5 +55,9 @@ export function useRegions(country: string, state: string): { states: string[]; 
     };
   }, [country]);
   const stateKey = Object.keys(regions).find((s) => s.toLowerCase() === state.trim().toLowerCase());
-  return { states: Object.keys(regions), cities: stateKey ? regions[stateKey] : [] };
+  const allCities = useMemo(
+    () => Object.entries(regions).flatMap(([s, cities]) => cities.map((c): [string, string] => [c, s])),
+    [regions],
+  );
+  return { states: Object.keys(regions), cities: stateKey ? regions[stateKey] : [], allCities };
 }

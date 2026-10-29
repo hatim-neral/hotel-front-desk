@@ -5,11 +5,12 @@ import { assignGuestNo, deletePhoto, getPhoto, newId, saveGuest, savePhoto, upda
 import { validateGuest, type Errors } from '../validation';
 import { Field, Section, Segmented } from '../components/ui';
 import IdPhotos from '../components/IdPhotos';
+import { GuestPhotoField } from '../components/GuestPhoto';
 import { PaymentRows } from '../components/Payments';
 import { draftTotal, emptyBillTo, toPayments, type PaymentDraft } from '../payments';
 import CompanyFields from '../components/CompanyFields';
 import PlaceFields, { COUNTRY_LIST_ID, CountryList } from '../components/PlaceFields';
-import { findRoom, rateFor, ROOM_STATE_LABEL, roomViews } from '../rooms';
+import { findRoom, rateFor, ROOM_STATE_LABEL, roomViews, typeLabel } from '../rooms';
 import { addDays, formatAadhaar, formatDate, go, nightsBetween, nowTime, rupees, todayStr } from '../utils';
 
 function blankGuest(settings: Settings, room?: Room): Guest {
@@ -17,7 +18,7 @@ function blankGuest(settings: Settings, room?: Room): Guest {
     id: newId(), guestNo: '', status: 'in',
     fullName: '', phone: '', email: '', gender: '', dob: '',
     nationality: 'Indian', country: 'India',
-    idType: 'Aadhaar', idNumber: '', idPhotos: [],
+    idType: 'Aadhaar', idNumber: '', idPhotos: [], guestPhoto: '',
     passportNumber: '', passportIssueDate: '', passportExpiry: '', passportPlaceOfIssue: '',
     visaNumber: '', visaType: '', visaIssueDate: '', visaPlaceOfIssue: '', visaExpiry: '', arrivalInIndia: '',
     address: '', addressCountry: 'India', city: '', state: '', pincode: '',
@@ -39,7 +40,7 @@ function returningStay(prev: Guest, settings: Settings, rooms: Room[], guests: G
   const fresh = blankGuest(settings, free ? room : undefined);
   const guest: Guest = {
     ...prev,
-    id: fresh.id, guestNo: '', status: 'in', idPhotos: [],
+    id: fresh.id, guestNo: '', status: 'in', idPhotos: [], guestPhoto: '',
     roomNumber: fresh.roomNumber, roomType: fresh.roomType, ratePerNight: fresh.ratePerNight, gstRate: fresh.gstRate,
     checkInDate: fresh.checkInDate, checkInTime: fresh.checkInTime, checkOutDate: '', checkOutTime: fresh.checkOutTime,
     payments: [], charges: [], remarks: '', createdAt: fresh.createdAt, checkedOutAt: undefined,
@@ -127,6 +128,12 @@ export default function CheckInForm({
 
   // Copy the ID photos of the past stay under new ids, so deleting either record keeps the other's photos
   const copyPhotos = async (prev: Guest) => {
+    const face = prev.guestPhoto && (await getPhoto(prev.guestPhoto));
+    if (face) {
+      const id = newId();
+      setNewPhotos((p) => ({ ...p, [id]: face }));
+      setG((cur) => ({ ...cur, guestPhoto: id }));
+    }
     for (const old of prev.idPhotos) {
       const url = await getPhoto(old);
       if (!url) continue;
@@ -233,8 +240,9 @@ export default function CheckInForm({
       companions: g.companions.map((c) => ({ ...c, name: c.name.trim(), idNumber: c.idNumber.replace(/\s/g, '').toUpperCase() })),
     };
     if (!clean.guestNo) clean.guestNo = await assignGuestNo();
-    await Promise.all(Object.entries(newPhotos).filter(([id]) => g.idPhotos.includes(id)).map(([id, url]) => savePhoto(id, url)));
-    await Promise.all((existing?.idPhotos ?? []).filter((id) => !g.idPhotos.includes(id)).map(deletePhoto));
+    const kept = [...g.idPhotos, g.guestPhoto];
+    await Promise.all(Object.entries(newPhotos).filter(([id]) => kept.includes(id)).map(([id, url]) => savePhoto(id, url)));
+    await Promise.all([...(existing?.idPhotos ?? []), existing?.guestPhoto ?? ''].filter((id) => id && !kept.includes(id)).map(deletePhoto));
     await saveGuest(clean);
     if (existing?.status === 'in' && existing.roomNumber.toLowerCase() !== clean.roomNumber.toLowerCase()) {
       await updateRoom(existing.roomNumber, { housekeeping: 'dirty' }); // guest moved rooms; old room needs cleaning
@@ -342,6 +350,16 @@ export default function CheckInForm({
         <Field label="Date of birth">
           <input type="date" value={g.dob} max={todayStr()} onChange={(e) => set('dob', e.target.value)} />
         </Field>
+        <Field label="Guest photo" hint="Optional. Opens the webcam / front camera." wide>
+          <GuestPhotoField
+            id={g.guestPhoto}
+            pending={newPhotos}
+            onChange={(id, url) => {
+              if (url) setNewPhotos((p) => ({ ...p, [id]: url }));
+              set('guestPhoto', id);
+            }}
+          />
+        </Field>
       </Section>
 
       {isIndian ? (
@@ -423,7 +441,7 @@ export default function CheckInForm({
           error={errors.roomNumber}
           hint={
             selectedRoom
-              ? `${selectedRoom.type}${selectedRoom.housekeeping === 'dirty' ? ' · ⚠ not cleaned yet' : ''}`
+              ? `${typeLabel(settings, selectedRoom.type)}${selectedRoom.housekeeping === 'dirty' ? ' · ⚠ not cleaned yet' : ''}`
               : `${freeRooms.length} room(s) free — type or pick`
           }
         >
@@ -437,7 +455,7 @@ export default function CheckInForm({
           <datalist id="room-list">
             {freeRooms.map((v) => (
               <option key={v.room.number} value={v.room.number}>
-                {`${v.room.type} · ${ROOM_STATE_LABEL[v.state]}`}
+                {`${typeLabel(settings, v.room.type)} · ${ROOM_STATE_LABEL[v.state]}`}
               </option>
             ))}
           </datalist>
@@ -445,7 +463,7 @@ export default function CheckInForm({
         <Field label="Room type" hint={rateFor(settings, g.roomType) && `Standard price ${rupees(Number(rateFor(settings, g.roomType)))}/night`}>
           <select value={g.roomType} onChange={(e) => setRoomType(e.target.value)}>
             {!typeNames.includes(g.roomType) && <option>{g.roomType}</option>}
-            {typeNames.map((t) => <option key={t}>{t}</option>)}
+            {typeNames.map((t) => <option key={t} value={t}>{typeLabel(settings, t)}</option>)}
           </select>
         </Field>
         <Field label="Adults" required error={errors.adults}>

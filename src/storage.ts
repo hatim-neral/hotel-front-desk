@@ -12,9 +12,9 @@ export const DEFAULT_SETTINGS: Settings = {
   hotelAddress: '',
   defaultCheckOutTime: '11:00',
   roomTypes: [
-    { name: 'Standard', rate: '1800' },
-    { name: 'Deluxe', rate: '2500' },
-    { name: 'Suite', rate: '4500' },
+    { name: 'Standard', rate: '1800', ac: true },
+    { name: 'Deluxe', rate: '2500', ac: true },
+    { name: 'Suite', rate: '4500', ac: true },
   ],
   nextGuestNo: 1,
   gstRate: 5,
@@ -61,6 +61,8 @@ function readGuests(): Guest[] {
         // Bills saved before bills had their own IDs get one under the stay's bill ID
         charges: (g.charges ?? []).map((c, i) => ({ ...c, chargeNo: c.chargeNo || (g.guestNo ? `${g.guestNo}-${String(i + 1).padStart(2, '0')}` : '') })),
         idPhotos: g.idPhotos ?? [],
+        guestPhoto: g.guestPhoto ?? '',
+        billTo: g.billTo && Object.assign({ contactPerson: '', phone: '', email: '' }, g.billTo), // company contact fields came later
         companions: (g.companions ?? []).map((c) => ({ ...companionDefaults, ...c })),
       };
     });
@@ -130,7 +132,7 @@ export async function saveGuest(guest: Guest): Promise<void> {
 
 export async function deleteGuest(id: string): Promise<void> {
   const guest = readGuests().find((g) => g.id === id);
-  await Promise.all((guest?.idPhotos ?? []).map(deletePhoto));
+  await Promise.all([...(guest?.idPhotos ?? []), ...(guest?.guestPhoto ? [guest.guestPhoto] : [])].map(deletePhoto));
   writeGuests(readGuests().filter((g) => g.id !== id));
 }
 
@@ -166,8 +168,8 @@ export async function deletePhoto(id: string): Promise<void> {
 export async function loadSettings(): Promise<Settings> {
   try {
     const s = { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
-    // Older versions stored room types as plain names without prices
-    s.roomTypes = (s.roomTypes as (string | RoomType)[]).map((t) => (typeof t === 'string' ? { name: t, rate: '' } : t));
+    // Older versions stored room types as plain names without prices, and without AC / Non-AC
+    s.roomTypes = (s.roomTypes as (string | RoomType)[]).map((t) => (typeof t === 'string' ? { name: t, rate: '', ac: true } : { ...t, ac: t.ac ?? true }));
     return s;
   } catch {
     return DEFAULT_SETTINGS;

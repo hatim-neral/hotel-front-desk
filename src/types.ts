@@ -25,6 +25,9 @@ export interface BillTo {
   company: string;
   gstin: string;
   address: string;
+  contactPerson: string;
+  phone: string;
+  email: string;
 }
 
 // An extra bill added to the stay's account (food, laundry, etc.)
@@ -71,6 +74,7 @@ export interface Guest {
   idType: IdType;
   idNumber: string;
   idPhotos: string[]; // photo ids; the images live in storage.ts photo store
+  guestPhoto: string; // photo id of the guest's own photo, '' if none
 
   // Passport (Indian guests using a passport as ID, and all foreign guests)
   passportNumber: string; // foreign guests; Indian guests keep it in idNumber
@@ -127,6 +131,7 @@ export type Housekeeping = 'clean' | 'dirty' | 'out-of-order';
 export interface RoomType {
   name: string;
   rate: string; // default price per night, ₹
+  ac: boolean;
 }
 
 export interface Room {

@@ -14,7 +14,7 @@ function base(id: string): Guest {
     id: SAMPLE_PREFIX + id, guestNo: '', status: 'in',
     fullName: '', phone: '', email: '', gender: '', dob: '',
     nationality: 'Indian', country: 'India',
-    idType: 'Aadhaar', idNumber: '', idPhotos: [],
+    idType: 'Aadhaar', idNumber: '', idPhotos: [], guestPhoto: '',
     passportNumber: '', passportIssueDate: '', passportExpiry: '', passportPlaceOfIssue: '',
     visaNumber: '', visaType: '', visaIssueDate: '', visaPlaceOfIssue: '', visaExpiry: '', arrivalInIndia: '',
     address: '', addressCountry: 'India', city: '', state: '', pincode: '',

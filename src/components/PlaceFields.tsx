@@ -14,7 +14,8 @@ export function CountryList() {
   );
 }
 
-// Country -> State -> City. Each list is filtered by the field before it.
+// Country -> State -> City. Each list is filtered by the field before it, but the city can also be
+// typed first: picking "Pune, Maharashtra" (or typing a city name found in only one state) fills the state.
 // Typing is allowed too, so a small town missing from the list can still be entered.
 export default function PlaceFields({
   country, state, city, onChange, errors = {}, cityRequired,
@@ -27,7 +28,20 @@ export default function PlaceFields({
   cityRequired?: boolean;
 }) {
   const id = useId();
-  const { states, cities } = useRegions(country, state);
+  const { states, cities, allCities } = useRegions(country, state);
+  const cityFirst = !state.trim() && allCities.length > 0;
+
+  const setCity = (value: string) => {
+    if (!cityFirst) return onChange({ country, state, city: value });
+    const typed = value.trim().toLowerCase();
+    // "City, State" picked from the list
+    const pair = allCities.find(([c, s]) => `${c}, ${s}`.toLowerCase() === typed);
+    if (pair) return onChange({ country, state: pair[1], city: pair[0] });
+    // A city name that exists in just one state
+    const same = allCities.filter(([c]) => c.toLowerCase() === typed);
+    if (same.length === 1) return onChange({ country, state: same[0][1], city: same[0][0] });
+    onChange({ country, state, city: value });
+  };
 
   return (
     <>
@@ -56,17 +70,25 @@ export default function PlaceFields({
         label="City"
         required={cityRequired}
         error={errors.city}
-        hint={cities.length ? `${cities.length} cities — type to search` : state ? 'Type the city name' : 'Select state first'}
+        hint={
+          cities.length
+            ? `${cities.length} cities — type to search`
+            : cityFirst
+              ? 'Type the city — the state fills in by itself'
+              : state ? 'Type the city name' : 'Select country first'
+        }
       >
         <input
           list={`${id}-cities`}
           value={city}
-          placeholder={state ? 'Type to search…' : 'Select state first'}
+          placeholder={state || cityFirst ? 'Type to search…' : 'Select country first'}
           autoComplete="off"
-          onChange={(e) => onChange({ country, state, city: e.target.value })}
+          onChange={(e) => setCity(e.target.value)}
         />
         <datalist id={`${id}-cities`}>
-          {cities.map((c) => <option key={c} value={c} />)}
+          {cityFirst
+            ? allCities.map(([c, s]) => <option key={`${c}|${s}`} value={`${c}, ${s}`} />)
+            : cities.map((c) => <option key={c} value={c} />)}
         </datalist>
       </Field>
     </>

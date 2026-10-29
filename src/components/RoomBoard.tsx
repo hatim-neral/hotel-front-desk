@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { Housekeeping, Settings } from '../types';
 import { updateRoom } from '../storage';
-import { floorOf, rateFor, ROOM_STATE_LABEL, type RoomState, type RoomView } from '../rooms';
+import { floorOf, rateFor, ROOM_STATE_LABEL, typeLabel, type RoomState, type RoomView } from '../rooms';
 import { billFor, formatDate, formatTime, formatWhen, rupees } from '../utils';
 
 export type BoardFilter = RoomState | 'all';
@@ -145,7 +145,7 @@ export function RoomDrawer({
       <div className="drawer-head">
         <div>
           <div className="drawer-num">{room.number}</div>
-          <div className="muted">{room.type}{rate && ` · ${rupees(Number(rate))}/night`}</div>
+          <div className="muted">{typeLabel(settings, room.type)}{rate && ` · ${rupees(Number(rate))}/night`}</div>
         </div>
         <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
       </div>

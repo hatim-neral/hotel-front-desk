@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import type { BillTo, Charge, Guest, Payment, Settings } from '../types';
 import { deleteGuest, saveGuest, updateRoom } from '../storage';
-import { StatusBadge } from '../components/ui';
+import { Field, StatusBadge } from '../components/ui';
+import { typeLabel } from '../rooms';
 import { PaymentLines, PaymentRows } from '../components/Payments';
 import { draftTotal, emptyBillTo, toPayments, type PaymentDraft } from '../payments';
 import CompanyFields from '../components/CompanyFields';
 import { billToErrors } from '../validation';
 import IdPhotos from '../components/IdPhotos';
+import { GuestPhotoView } from '../components/GuestPhoto';
+import { gstState, ROOM_SAC, splitGst } from '../gst';
 import { AddCharge } from '../components/ChargeForm';
 import {
   billFor, withCharge, formatAadhaar, formatDate, formatTime, go, isDueOutToday, maskId, nowTime, rupees, todayStr,
@@ -31,6 +34,9 @@ export default function GuestDetail({
   const [editingCompany, setEditingCompany] = useState(false);
   const [company, setCompany] = useState<BillTo>(() => g?.billTo ?? emptyBillTo());
   const [companyTried, setCompanyTried] = useState(false);
+  // Actual check-out date and time; starts at now, can be changed if the guest left earlier
+  const [outDate, setOutDate] = useState(todayStr);
+  const [outTime, setOutTime] = useState(nowTime);
 
   if (!g) return <p className="muted">Guest not found. <a href="#/">Go home</a></p>;
 
@@ -38,6 +44,20 @@ export default function GuestDetail({
   const inHouse = g.status === 'in';
   const fullId = isIndian ? (g.idType === 'Aadhaar' ? formatAadhaar(g.idNumber) : g.idNumber) : g.passportNumber;
   const bill = billFor(g);
+  const roomTypeLabel = typeLabel(settings, g.roomType);
+  const hotelState = settings.gstin ? gstState(settings.gstin) : undefined;
+  const companyState = g.billTo ? gstState(g.billTo.gstin) : undefined;
+  const companyContact = g.billTo && [g.billTo.contactPerson, g.billTo.phone, g.billTo.email].filter(Boolean).join(' · ');
+  // While checking out, the bill runs to the chosen check-out date
+  const outBill = billFor({ ...g, status: 'out', checkOutDate: outDate });
+  const outError =
+    !outDate || !outTime
+      ? 'Enter the check-out date and time'
+      : outDate > todayStr()
+        ? 'Check-out date cannot be in the future'
+        : outDate < g.checkInDate || (outDate === g.checkInDate && outTime < g.checkInTime)
+          ? 'Check-out cannot be before check-in'
+          : '';
 
   const saveCharges = async (charges: Charge[], msg: string) => {
     await saveGuest({ ...g, charges });
@@ -58,7 +78,7 @@ export default function GuestDetail({
   };
 
   // Check-out needs the balance settled exactly; refunds are recorded as negative payments
-  const due = Math.abs(bill.balance);
+  const due = Math.abs(outBill.balance);
   const entered = draftTotal(payRows);
   const settled = Math.abs(entered - due) < 0.01;
 
@@ -82,10 +102,10 @@ export default function GuestDetail({
     await saveGuest({
       ...g,
       status: 'out',
-      checkOutDate: todayStr(),
-      checkOutTime: nowTime(),
+      checkOutDate: outDate,
+      checkOutTime: outTime,
       checkedOutAt: new Date().toISOString(),
-      payments: [...g.payments, ...(due ? toPayments(payRows, 'checkout', bill.balance < 0 ? -1 : 1) : [])],
+      payments: [...g.payments, ...(due ? toPayments(payRows, 'checkout', outBill.balance < 0 ? -1 : 1) : [])],
       billTo: g.billTo ?? (needsCompany ? { ...company, company: company.company.trim() } : undefined),
     });
     await updateRoom(g.roomNumber, { housekeeping: 'dirty' }); // room needs cleaning before the next guest
@@ -125,7 +145,7 @@ export default function GuestDetail({
     ['Arriving from', g.arrivingFrom],
     ['Next destination', g.goingTo],
     ['Vehicle', g.vehicleNumber],
-    ['Room type', g.roomType],
+    ['Room type', roomTypeLabel],
     ['Guests', `${g.adults} adult(s), ${g.children} child(ren)`],
     ['Remarks', g.remarks],
   ];
@@ -135,18 +155,27 @@ export default function GuestDetail({
       <div className="print-only print-head">
         <h2>{settings.hotelName}</h2>
         {settings.hotelAddress && <p>{settings.hotelAddress}</p>}
-        {settings.gstin && <p>GSTIN: {settings.gstin}</p>}
-        <h3>{inHouse ? 'Guest Registration Card' : `Bill ${g.guestNo}`}</h3>
+        {settings.gstin && <p>GSTIN: {settings.gstin}{hotelState && ` · State: ${hotelState.name} (${hotelState.code})`}</p>}
+        <h3>{inHouse ? 'Guest Registration Card' : settings.gstin ? 'Tax Invoice' : 'Bill'}</h3>
+        {!inHouse && (
+          <p>
+            Invoice no. {g.guestNo} · Date {formatDate(g.checkOutDate)}
+            {hotelState && ` · Place of supply: ${hotelState.name}`}
+          </p>
+        )}
         {g.billTo && (
           <p className="print-billto">
             Billed to: <strong>{g.billTo.company}</strong> · GSTIN {g.billTo.gstin}
+            {companyState && ` (${companyState.name})`}
             {g.billTo.address && <> · {g.billTo.address}</>}
+            {companyContact && <><br />{companyContact}</>}
             <br />Guest: {g.fullName}
           </p>
         )}
       </div>
 
       <div className="detail-head">
+        <GuestPhotoView id={g.guestPhoto} />
         <div className="room room-lg">{g.roomNumber}</div>
         <div className="grow">
           <h1>{g.fullName}</h1>
@@ -188,13 +217,32 @@ export default function GuestDetail({
           {confirmOut ? (
             <div className="confirm">
               <p>
-                Check out <strong>{g.fullName}</strong> from room <strong>{g.roomNumber}</strong> now?
+                Check out <strong>{g.fullName}</strong> from room <strong>{g.roomNumber}</strong>?
               </p>
-              <BillSummary bill={bill} payments={g.payments} />
+              <div className="form grid out-when">
+                <Field label="Check-out date" error={outError}>
+                  <input
+                    type="date"
+                    value={outDate}
+                    min={g.checkInDate}
+                    max={todayStr()}
+                    onChange={(e) => {
+                      setOutDate(e.target.value);
+                      // the bill changes with the number of nights; start the payment again from the new balance
+                      const b = billFor({ ...g, status: 'out', checkOutDate: e.target.value });
+                      setPayRows([{ amount: String(Math.abs(b.balance)), mode: payRows[0]?.mode ?? 'Cash' }]);
+                    }}
+                  />
+                </Field>
+                <Field label="Check-out time" hint="Change it if the guest left earlier">
+                  <input type="time" value={outTime} onChange={(e) => setOutTime(e.target.value)} />
+                </Field>
+              </div>
+              <BillSummary bill={outBill} payments={g.payments} hotelGstin={settings.gstin} />
               {due > 0 && (
                 <div className="settle">
                   <div className="settle-head">
-                    <strong>{bill.balance > 0 ? `Collect ${rupees(due)}` : `Refund ${rupees(due)}`}</strong>
+                    <strong>{outBill.balance > 0 ? `Collect ${rupees(due)}` : `Refund ${rupees(due)}`}</strong>
                     <span className={settled ? 'settle-ok' : 'settle-left'}>
                       {settled
                         ? '✓ Matches the balance'
@@ -214,8 +262,12 @@ export default function GuestDetail({
               )}
               <div className="actions">
                 <button className="btn btn-ghost" onClick={() => setConfirmOut(false)}>Cancel</button>
-                <button className="btn btn-danger btn-xl" onClick={checkOut} disabled={(due > 0 && !settled) || (needsCompany && !companyValid)}>
-                  {due === 0 ? 'Yes, Check Out' : bill.balance > 0 ? `Collected ${rupees(due)} — Check Out` : `Refunded ${rupees(due)} — Check Out`}
+                <button
+                  className="btn btn-danger btn-xl"
+                  onClick={checkOut}
+                  disabled={(due > 0 && !settled) || (needsCompany && !companyValid) || !!outError}
+                >
+                  {due === 0 ? 'Yes, Check Out' : outBill.balance > 0 ? `Collected ${rupees(due)} — Check Out` : `Refunded ${rupees(due)} — Check Out`}
                 </button>
               </div>
             </div>
@@ -224,6 +276,8 @@ export default function GuestDetail({
               <button
                 className="btn btn-danger btn-xl"
                 onClick={() => {
+                  setOutDate(todayStr());
+                  setOutTime(nowTime());
                   setPayRows([{ amount: String(Math.abs(bill.balance)), mode: 'Cash' }]);
                   setConfirmOut(true);
                 }}
@@ -270,8 +324,9 @@ export default function GuestDetail({
           <div className="billto no-print">
             <span className="muted">Billed to</span>
             <strong>{g.billTo.company}</strong>
-            <span className="mono">GSTIN {g.billTo.gstin}</span>
+            <span className="mono">GSTIN {g.billTo.gstin}{companyState && ` · ${companyState.name}`}</span>
             {g.billTo.address && <span className="muted">{g.billTo.address}</span>}
+            {companyContact && <span className="muted">{companyContact}</span>}
             {inHouse && <button className="link" onClick={() => setEditingCompany(true)}>Edit</button>}
           </div>
         ) : (
@@ -287,6 +342,7 @@ export default function GuestDetail({
               <th>Date</th>
               <th>Bill ID</th>
               <th>Item</th>
+              <th>SAC</th>
               <th className="num">Amount</th>
               {inHouse && <th className="no-print" />}
             </tr>
@@ -296,9 +352,10 @@ export default function GuestDetail({
               <td>{formatDate(g.checkInDate)}</td>
               <td className="mono">{g.guestNo}</td>
               <td>
-                Room {g.roomNumber}: {bill.nights} night{bill.nights > 1 && 's'} × {rupees(Number(g.ratePerNight) || 0)}
+                Room {g.roomNumber} ({roomTypeLabel}): {bill.nights} night{bill.nights > 1 && 's'} × {rupees(Number(g.ratePerNight) || 0)}
                 {inHouse && <span className="muted"> (so far)</span>}
               </td>
+              <td className="mono">{ROOM_SAC}</td>
               <td className="num">{rupees(bill.roomTotal)}</td>
               {inHouse && <td className="no-print" />}
             </tr>
@@ -311,6 +368,7 @@ export default function GuestDetail({
                   {c.description && <span className="muted"> — {c.description}</span>}
                   {c.billNo && <span className="muted"> · slip {c.billNo}</span>}
                 </td>
+                <td />
                 <td className="num">{rupees(Number(c.amount))}</td>
                 {inHouse && (
                   <td className="no-print">
@@ -354,6 +412,7 @@ export default function GuestDetail({
         <BillSummary
           bill={bill}
           payments={g.payments}
+          hotelGstin={settings.gstin}
           onRemovePayment={
             inHouse
               ? (p) =>
@@ -422,18 +481,22 @@ export default function GuestDetail({
 }
 
 function BillSummary({
-  bill, payments, onRemovePayment,
+  bill, payments, hotelGstin, onRemovePayment,
 }: {
   bill: ReturnType<typeof billFor>;
   payments: Payment[];
+  hotelGstin: string;
   onRemovePayment?: (p: Payment) => void;
 }) {
+  const split = splitGst(bill.gst, bill.gstRate, hotelGstin);
   return (
     <dl className="totals">
       <div><dt>Room charges</dt><dd>{rupees(bill.roomTotal)}</dd></div>
       <div><dt>Extra bills</dt><dd>{rupees(bill.extras)}</dd></div>
-      <div className="totals-sub"><dt>Subtotal</dt><dd>{rupees(bill.subtotal)}</dd></div>
-      <div><dt>GST {bill.gstRate}%</dt><dd>{rupees(bill.gst)}</dd></div>
+      <div className="totals-sub"><dt>Taxable value</dt><dd>{rupees(bill.subtotal)}</dd></div>
+      <div><dt>CGST {split.half}%</dt><dd>{rupees(split.central)}</dd></div>
+      <div><dt>{split.stateLabel} {split.half}%</dt><dd>{rupees(split.state)}</dd></div>
+      <div className="totals-sub"><dt>Total GST {bill.gstRate}%</dt><dd>{rupees(bill.gst)}</dd></div>
       <div className="totals-strong"><dt>Total</dt><dd>{rupees(bill.total)}</dd></div>
       <PaymentLines payments={payments} onRemove={onRemovePayment} />
       <div className={`totals-strong ${bill.balance > 0 ? 'due' : ''}`}>
