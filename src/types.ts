@@ -126,6 +126,17 @@ export interface Guest {
   checkedOutAt?: string; // ISO, set on actual check-out
 }
 
+// Cash moved in or out of the front-desk drawer outside guest bills: cash handed to the owner or
+// banked, petty expenses, or a float added. Shown in the payment report's cash column.
+export interface CashEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  direction: 'in' | 'out';
+  amount: number;
+  narration: string;
+}
+
 export type Housekeeping = 'clean' | 'dirty' | 'out-of-order';
 
 export interface RoomType {

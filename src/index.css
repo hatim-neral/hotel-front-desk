@@ -642,3 +642,34 @@ button.quick-result { width: 100%; border: none; background: none; font: inherit
 @media print {
   .guest-photo { width: 110px; height: 130px; border-color: #999; }
 }
+
+/* Payment report */
+.report-controls { display: grid; gap: 14px; }
+.report-controls .actions { justify-content: flex-start; }
+.report-kpis .kpi { cursor: default; }
+.report-scroll { overflow-x: auto; }
+.report { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.report th { text-align: left; font-size: 0.78rem; color: var(--muted); font-weight: 600; padding: 8px; border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
+.report td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.report .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.report .nowrap { white-space: nowrap; }
+.report-total td { font-weight: 700; border-top: 1px solid var(--border-strong); }
+.report-balance td { background: var(--surface-2); }
+.report-group td { font-weight: 700; padding-top: 12px; }
+.report-account { padding-left: 20px !important; }
+.report-summaries { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.report-summaries .report-card { overflow-x: auto; }
+@media (max-width: 760px) {
+  .report-summaries { grid-template-columns: minmax(0, 1fr); }
+}
+.report-meta { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+@media print {
+  @page { margin: 12mm; }
+  .report { font-size: 10pt; }
+  .report th, .report td { border: 1px solid #999; padding: 4px 6px; }
+  .report-balance td { background: #fff; }
+  .report-summaries { grid-template-columns: 1fr 1fr; }
+  .report-card { padding: 0; border: 0; }
+  .report-scroll { overflow: visible; }
+}

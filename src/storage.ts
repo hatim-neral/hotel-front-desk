@@ -1,11 +1,12 @@
 // All data access goes through this file. Today it uses the browser's
 // localStorage; to move to a server or a mobile database later, only
 // these functions need to change — the screens stay the same.
-import type { Guest, Payment, PaymentMode, Room, RoomType, Settings } from './types';
+import type { CashEntry, Guest, Payment, PaymentMode, Room, RoomType, Settings } from './types';
 
 const GUESTS_KEY = 'hotel.guests.v1';
 const SETTINGS_KEY = 'hotel.settings.v1';
 const ROOMS_KEY = 'hotel.rooms.v1';
+const CASHBOOK_KEY = 'hotel.cashbook.v1';
 
 export const DEFAULT_SETTINGS: Settings = {
   hotelName: 'My Hotel',
@@ -226,6 +227,23 @@ export async function updateRoom(number: string, patch: Partial<Room>): Promise<
 
 export async function saveSettings(settings: Settings): Promise<void> {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+export async function listCashEntries(): Promise<CashEntry[]> {
+  try {
+    return JSON.parse(localStorage.getItem(CASHBOOK_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+export async function saveCashEntry(entry: CashEntry): Promise<void> {
+  const entries = (await listCashEntries()).filter((e) => e.id !== entry.id);
+  localStorage.setItem(CASHBOOK_KEY, JSON.stringify([...entries, entry]));
+}
+
+export async function deleteCashEntry(id: string): Promise<void> {
+  localStorage.setItem(CASHBOOK_KEY, JSON.stringify((await listCashEntries()).filter((e) => e.id !== id)));
 }
 
 export function newId(): string {

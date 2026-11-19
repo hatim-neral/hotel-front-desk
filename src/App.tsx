@@ -9,9 +9,10 @@ import SettingsScreen from './screens/Settings';
 import CheckOutList from './screens/CheckOutList';
 import Rooms from './screens/Rooms';
 import AddBill from './screens/AddBill';
+import Reports from './screens/Reports';
 import type { BoardFilter } from './components/RoomBoard';
 
-// Tiny hash router: #/, #/checkin, #/checkin/:room, #/again/:id, #/checkout, #/rooms, #/rooms/:filter, #/bill, #/bill/:guestId, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/settings
+// Tiny hash router: #/, #/checkin, #/checkin/:room, #/again/:id, #/checkout, #/rooms, #/rooms/:filter, #/bill, #/bill/:guestId, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/reports, #/settings
 function useRoute() {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -120,6 +121,9 @@ export default function App() {
     case 'bill':
       screen = <AddBill key={param} guests={guests} guestId={param} onChanged={notify} />;
       break;
+    case 'reports':
+      screen = <Reports guests={guests} settings={settings} onChanged={notify} />;
+      break;
     case 'settings':
       screen = <SettingsScreen settings={settings} guests={guests} rooms={rooms} onSaved={notify} />;
       break;
@@ -134,6 +138,7 @@ export default function App() {
     { path: 'checkout', label: 'Check-Out', active: page === 'checkout' },
     { path: 'rooms', label: 'Rooms', active: page === 'rooms' },
     { path: 'guests/inhouse', label: 'Guests', active: page === 'guests' || page === 'guest' },
+    { path: 'reports', label: 'Reports', active: page === 'reports' },
     { path: 'settings', label: 'Settings', active: page === 'settings' },
   ];
 
