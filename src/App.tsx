@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Guest, Room, Settings } from './types';
-import { DEFAULT_SETTINGS, listGuests, listRooms, loadSettings } from './storage';
+import { DEFAULT_SETTINGS, listGuests, listRooms, loadSessionRef, loadSettings } from './storage';
 import Dashboard from './screens/Dashboard';
 import CheckInForm from './screens/CheckInForm';
 import GuestList, { type ListFilter } from './screens/GuestList';
@@ -10,9 +10,14 @@ import CheckOutList from './screens/CheckOutList';
 import Rooms from './screens/Rooms';
 import AddBill from './screens/AddBill';
 import Reports from './screens/Reports';
+import Login from './screens/Login';
+import ShiftEnd from './screens/ShiftEnd';
+import { resumeSession } from './auth';
+import { getSession, isAdmin } from './session';
+import { formatTime } from './utils';
 import type { BoardFilter } from './components/RoomBoard';
 
-// Tiny hash router: #/, #/checkin, #/checkin/:room, #/again/:id, #/checkout, #/rooms, #/rooms/:filter, #/bill, #/bill/:guestId, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/reports, #/settings
+// Tiny hash router: #/, #/checkin, #/checkin/:room, #/again/:id, #/checkout, #/rooms, #/rooms/:filter, #/bill, #/bill/:guestId, #/checkout/:id, #/edit/:id, #/guests/:filter, #/guest/:id, #/reports, #/reports/:report, #/shift, #/settings
 function useRoute() {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -52,8 +57,10 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [theme, toggleTheme] = useTheme();
+  const [, setSessionTick] = useState(0); // re-render after login / logout
 
   const refresh = useCallback(async () => {
+    if (!getSession()) await resumeSession(loadSessionRef());
     setGuests(await listGuests());
     setSettings(await loadSettings());
     setRooms(await listRooms());
@@ -77,6 +84,20 @@ export default function App() {
 
   let screen;
   if (!loaded) return null;
+  const session = getSession();
+  if (!session) {
+    return (
+      <Login
+        settings={settings}
+        onLoggedIn={() => {
+          setSessionTick((n) => n + 1);
+          location.hash = '#/';
+          notify('Shift started');
+        }}
+      />
+    );
+  }
+  const admin = isAdmin();
   switch (page) {
     case 'checkin':
       screen = (
@@ -122,10 +143,25 @@ export default function App() {
       screen = <AddBill key={param} guests={guests} guestId={param} onChanged={notify} />;
       break;
     case 'reports':
-      screen = <Reports guests={guests} settings={settings} onChanged={notify} />;
+      screen = <Reports key={param} guests={guests} rooms={rooms} settings={settings} reportId={param} onChanged={notify} />;
+      break;
+    case 'shift':
+      screen = (
+        <ShiftEnd
+          guests={guests}
+          rooms={rooms}
+          settings={settings}
+          onEnded={() => {
+            setSessionTick((n) => n + 1);
+            location.hash = '#/';
+          }}
+        />
+      );
       break;
     case 'settings':
-      screen = <SettingsScreen settings={settings} guests={guests} rooms={rooms} onSaved={notify} />;
+      screen = admin
+        ? <SettingsScreen settings={settings} guests={guests} rooms={rooms} onSaved={notify} />
+        : <p className="muted">Settings can be changed by an admin only.</p>;
       break;
     default:
       screen = <Dashboard guests={guests} rooms={rooms} />;
@@ -139,7 +175,7 @@ export default function App() {
     { path: 'rooms', label: 'Rooms', active: page === 'rooms' },
     { path: 'guests/inhouse', label: 'Guests', active: page === 'guests' || page === 'guest' },
     { path: 'reports', label: 'Reports', active: page === 'reports' },
-    { path: 'settings', label: 'Settings', active: page === 'settings' },
+    ...(admin ? [{ path: 'settings', label: 'Settings', active: page === 'settings' }] : []),
   ];
 
   return (
@@ -159,6 +195,13 @@ export default function App() {
               {n.label}
             </a>
           ))}
+          <a className={`nav-link user-chip${page === 'shift' ? ' active' : ''}`} href="#/shift" title="End shift / log out">
+            <span className="user-avatar" aria-hidden>{session.user.name.trim()[0]?.toUpperCase()}</span>
+            <span>
+              {session.user.name}
+              <span className="user-since">since {formatTime(session.shift.startTime)} · End shift</span>
+            </span>
+          </a>
           <button
             type="button"
             className="nav-link theme-toggle"

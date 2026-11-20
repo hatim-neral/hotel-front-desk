@@ -4,6 +4,7 @@ import { newId, saveGuest, updateRoom } from '../storage';
 import { findRoom, rateFor, roomViews, typeLabel } from '../rooms';
 import { gstRateFor, nowTime, rupees, todayStr } from '../utils';
 import { Field, Segmented } from './ui';
+import { actor } from '../session';
 
 // Shift an in-house guest to another room. The move is kept in the stay's room movement record,
 // and the old room goes to housekeeping.
@@ -51,7 +52,7 @@ export default function RoomChange({
       gstRate: g.gstRoomOnly ? gstRateFor(settings, ratePerNight) : g.gstRate,
       roomMoves: [
         ...g.roomMoves,
-        { id: newId(), date: todayStr(), time: nowTime(), from: g.roomNumber, to: room.number, fromType: g.roomType, toType: room.type, reason: reason.trim() },
+        { id: newId(), date: todayStr(), time: nowTime(), from: g.roomNumber, to: room.number, fromType: g.roomType, toType: room.type, reason: reason.trim(), ...actor() },
       ],
     });
     await updateRoom(g.roomNumber, { housekeeping: 'dirty' }); // old room needs cleaning

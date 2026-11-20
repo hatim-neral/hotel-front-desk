@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Companion, Guest, IdType, Nationality, Room, Settings } from '../types';
 import { ID_TYPES, PURPOSES, VISA_TYPES } from '../types';
+import { actor } from '../session';
 import { assignGuestNo, deletePhoto, getPhoto, newId, saveGuest, savePhoto, updateRoom } from '../storage';
 import { validateGuest, type Errors } from '../validation';
 import { Field, Section, Segmented } from '../components/ui';
@@ -238,7 +239,7 @@ export default function CheckInForm({
       roomMoves: moved
         ? [...g.roomMoves, {
             id: newId(), date: todayStr(), time: nowTime(), from: existing.roomNumber, to: g.roomNumber.trim(),
-            fromType: existing.roomType, toType: g.roomType, reason: 'Changed in Edit details',
+            fromType: existing.roomType, toType: g.roomType, reason: 'Changed in Edit details', ...actor(),
           }]
         : g.roomMoves,
       payments: [...g.payments.filter((p) => p.kind !== 'advance'), ...toPayments(advanceRows, 'advance')],
@@ -250,6 +251,11 @@ export default function CheckInForm({
       companions: g.companions.map((c) => ({ ...c, name: c.name.trim(), idNumber: c.idNumber.replace(/\s/g, '').toUpperCase() })),
     };
     if (!clean.guestNo) clean.guestNo = await assignGuestNo();
+    if (!existing) {
+      const who = actor();
+      clean.checkedInBy = who.by;
+      clean.checkInShift = who.shiftId;
+    }
     const kept = [...g.idPhotos, g.guestPhoto];
     await Promise.all(Object.entries(newPhotos).filter(([id]) => kept.includes(id)).map(([id, url]) => savePhoto(id, url)));
     await Promise.all([...(existing?.idPhotos ?? []), existing?.guestPhoto ?? ''].filter((id) => id && !kept.includes(id)).map(deletePhoto));

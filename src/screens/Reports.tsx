@@ -1,76 +1,77 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { CashEntry, Guest, Settings } from '../types';
-import { deleteCashEntry, listCashEntries, newId, saveCashEntry } from '../storage';
-import { buildReport, reportCsv } from '../report';
+import type { CashEntry, Guest, Room, Settings, Shift } from '../types';
+import { deleteCashEntry, listCashEntries, listShifts, newId, saveCashEntry } from '../storage';
+import {
+  dayPeriod, monthPeriod, rangePeriod, reportCsv, REPORTS, shiftLabel, shiftPeriod, type Period, type PeriodKind,
+} from '../reports';
+import ReportView from '../components/ReportView';
 import { Field, Segmented } from '../components/ui';
+import { actor, getSession, isAdmin } from '../session';
 import { addDays, formatDate, formatTime, nowTime, rupees, todayStr } from '../utils';
 
-const PREPARED_BY_KEY = 'hotel.preparedBy';
+const PERIOD_KINDS = ['Shift', 'Day', 'Month', 'Date range'] as const;
+type PeriodChoice = (typeof PERIOD_KINDS)[number];
+const KIND_OF: Record<PeriodChoice, PeriodKind> = { Shift: 'shift', Day: 'day', Month: 'month', 'Date range': 'range' };
 
-function remembered(): string {
-  try {
-    return localStorage.getItem(PREPARED_BY_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
+const shiftMonth = (month: string, n: number) => {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
 
-// Plain number for the report table: 14,300.00
-const amt = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-// All Payment Detail Report: payments for a day (or a date range) in cash / bank / city-ledger columns,
-// with cash in hand carried forward, ready to print for the owner or accountant.
-export default function Reports({ guests, settings, onChanged }: { guests: Guest[]; settings: Settings; onChanged: (msg: string) => void }) {
+// All reports, for a shift, a day, a month or any dates. The logged-in user's name goes on the printout.
+export default function Reports({
+  guests, rooms, settings, reportId, onChanged,
+}: {
+  guests: Guest[];
+  rooms: Room[];
+  settings: Settings;
+  reportId?: string;
+  onChanged: (msg: string) => void;
+}) {
   const today = todayStr();
+  const def = REPORTS.find((r) => r.id === reportId) ?? REPORTS[0];
+  const [cash, setCash] = useState<CashEntry[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [choice, setChoice] = useState<PeriodChoice>('Day');
+  const [day, setDay] = useState(today);
+  const [month, setMonth] = useState(today.slice(0, 7));
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
-  const [cash, setCash] = useState<CashEntry[]>([]);
-  const [preparedBy, setPreparedBy] = useState(remembered);
+  const [shiftId, setShiftId] = useState(getSession()?.shift.id ?? '');
   const [adding, setAdding] = useState(false);
+  const preparedBy = getSession()?.user.name ?? '';
 
-  const loadCash = useCallback(async () => setCash(await listCashEntries()), []);
+  const load = useCallback(async () => {
+    setCash(await listCashEntries());
+    setShifts(await listShifts());
+  }, []);
   useEffect(() => {
-    loadCash();
-  }, [loadCash]);
+    load();
+  }, [load]);
 
-  const report = buildReport(guests, cash, from, to);
-  const oneDay = from === to;
-  const shiftDay = (n: number) => {
-    const d = addDays(from, n);
-    setFrom(d);
-    setTo(d);
-  };
-
-  const setPrepared = (v: string) => {
-    setPreparedBy(v);
-    try {
-      localStorage.setItem(PREPARED_BY_KEY, v);
-    } catch {
-      // not remembered; fine
-    }
-  };
+  const shift = shifts.find((s) => s.id === shiftId) ?? shifts[0];
+  const kind = KIND_OF[choice];
+  const period: Period =
+    kind === 'shift' && shift ? shiftPeriod(shift)
+      : kind === 'month' ? monthPeriod(month)
+        : kind === 'range' ? rangePeriod(from, to)
+          : dayPeriod(day);
+  const result = def.build({ guests, cash, rooms, settings, shifts, period });
+  const periodText = def.snapshot ? `As of ${formatDate(today)}, ${formatTime(nowTime())}` : period.label;
 
   const download = () => {
-    const blob = new Blob([reportCsv(report)], { type: 'text/csv' });
+    const blob = new Blob([reportCsv(def, period, result, preparedBy)], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `payment-report-${from}${oneDay ? '' : `-to-${to}`}.csv`;
+    a.download = `${def.id}-${def.snapshot ? today : `${period.from}${period.to !== period.from ? `-to-${period.to}` : ''}`}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
 
-  const removeCash = async (id: string) => {
-    if (!confirm('Remove this cash entry?')) return;
-    await deleteCashEntry(id);
-    await loadCash();
-    onChanged('Cash entry removed');
-  };
-
-  const t = report.totals;
-  const moves = guests
-    .flatMap((g) => g.roomMoves.map((m) => ({ ...m, guest: g })))
-    .filter((m) => m.date >= from && m.date <= to)
-    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const periodCash = def.id === 'payments'
+    ? cash.filter((e) => (kind === 'shift' ? e.shiftId === shift?.id : e.date >= period.from && e.date <= period.to))
+    : [];
 
   return (
     <div className="stack report-page">
@@ -78,49 +79,85 @@ export default function Reports({ guests, settings, onChanged }: { guests: Guest
         <h2>{settings.hotelName}</h2>
         {settings.hotelAddress && <p>{settings.hotelAddress}</p>}
         {settings.gstin && <p>GSTIN: {settings.gstin}</p>}
-        <h3>All Payment Detail Report</h3>
+        <h3>{def.name} Report</h3>
         <p className="report-meta">
-          <span>Report date: {oneDay ? formatDate(from) : `${formatDate(from)} to ${formatDate(to)}`}</span>
-          {preparedBy && <span>Prepared by: {preparedBy}</span>}
+          <span>{periodText}</span>
+          <span>Prepared by: {preparedBy}</span>
           <span>Printed: {formatDate(today)}, {formatTime(nowTime())}</span>
         </p>
       </div>
 
       <div className="no-print">
-        <h1>Payment Report</h1>
-        <p className="muted">Every payment taken, by cash, online and company credit. Print it at the end of the day or shift.</p>
+        <h1>Reports</h1>
       </div>
 
+      <nav className="report-tabs no-print" aria-label="Report type">
+        {REPORTS.map((r) => (
+          <a key={r.id} href={`#/reports/${r.id}`} className={r.id === def.id ? 'active' : ''}>{r.name}</a>
+        ))}
+      </nav>
+
       <div className="card form report-controls no-print">
-        <div className="quick">
-          <button type="button" onClick={() => shiftDay(-1)} aria-label="Previous day">‹ Prev day</button>
-          <button type="button" className={oneDay && from === today ? 'active' : ''} onClick={() => { setFrom(today); setTo(today); }}>Today</button>
-          <button type="button" className={oneDay && from === addDays(today, -1) ? 'active' : ''} onClick={() => { const y = addDays(today, -1); setFrom(y); setTo(y); }}>Yesterday</button>
-          <button type="button" onClick={() => shiftDay(1)} disabled={from >= today} aria-label="Next day">Next day ›</button>
+        <div>
+          <strong>{def.name}</strong>
+          <p className="muted small">{def.description}</p>
         </div>
-        <div className="grid">
-          <Field label="From">
-            <input type="date" value={from} max={today} onChange={(e) => { setFrom(e.target.value); if (e.target.value > to) setTo(e.target.value); }} />
-          </Field>
-          <Field label="To">
-            <input type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)} />
-          </Field>
-          <Field label="Prepared by" hint="Printed on the report">
-            <input value={preparedBy} placeholder="Receptionist name" onChange={(e) => setPrepared(e.target.value)} />
-          </Field>
-        </div>
+        {!def.snapshot && (
+          <>
+            <Segmented options={PERIOD_KINDS} value={choice} onChange={setChoice} />
+            {kind === 'shift' && (
+              <Field label="Shift" wide>
+                <select value={shift?.id ?? ''} onChange={(e) => setShiftId(e.target.value)}>
+                  {!shifts.length && <option value="">No shifts yet</option>}
+                  {shifts.slice(0, 300).map((s) => <option key={s.id} value={s.id}>{shiftLabel(s)}</option>)}
+                </select>
+              </Field>
+            )}
+            {kind === 'day' && (
+              <div className="period-row">
+                <button type="button" className="btn btn-ghost" onClick={() => setDay(addDays(day, -1))}>‹</button>
+                <input type="date" value={day} max={today} onChange={(e) => e.target.value && setDay(e.target.value)} aria-label="Day" />
+                <button type="button" className="btn btn-ghost" onClick={() => setDay(addDays(day, 1))} disabled={day >= today}>›</button>
+                <div className="quick">
+                  <button type="button" className={day === today ? 'active' : ''} onClick={() => setDay(today)}>Today</button>
+                  <button type="button" className={day === addDays(today, -1) ? 'active' : ''} onClick={() => setDay(addDays(today, -1))}>Yesterday</button>
+                </div>
+              </div>
+            )}
+            {kind === 'month' && (
+              <div className="period-row">
+                <button type="button" className="btn btn-ghost" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
+                <input type="month" value={month} max={today.slice(0, 7)} onChange={(e) => e.target.value && setMonth(e.target.value)} aria-label="Month" />
+                <button type="button" className="btn btn-ghost" onClick={() => setMonth(shiftMonth(month, 1))} disabled={month >= today.slice(0, 7)}>›</button>
+              </div>
+            )}
+            {kind === 'range' && (
+              <div className="grid">
+                <Field label="From">
+                  <input type="date" value={from} max={today} onChange={(e) => { setFrom(e.target.value); if (e.target.value > to) setTo(e.target.value); }} />
+                </Field>
+                <Field label="To">
+                  <input type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)} />
+                </Field>
+              </div>
+            )}
+          </>
+        )}
+        <p className="muted small">
+          {periodText} · Prepared by <strong>{preparedBy}</strong>
+        </p>
         <div className="actions">
-          <button type="button" className="btn" onClick={() => setAdding(!adding)}>+ Cash paid out / added</button>
-          <button type="button" className="btn" onClick={download} disabled={!report.lines.length}>Download (CSV)</button>
+          {def.id === 'payments' && <button type="button" className="btn" onClick={() => setAdding(!adding)}>+ Cash paid out / added</button>}
+          <button type="button" className="btn" onClick={download}>Download (CSV)</button>
           <button type="button" className="btn btn-primary" onClick={() => window.print()}>Print report</button>
         </div>
         {adding && (
           <CashEntryForm
-            defaultDate={to}
+            defaultDate={kind === 'day' ? day : today}
             onCancel={() => setAdding(false)}
             onSave={async (e) => {
               await saveCashEntry(e);
-              await loadCash();
+              await load();
               setAdding(false);
               onChanged(`Cash ${e.direction === 'out' ? 'paid out' : 'added'}: ${rupees(e.amount)}`);
             }}
@@ -128,174 +165,38 @@ export default function Reports({ guests, settings, onChanged }: { guests: Guest
         )}
       </div>
 
-      <div className="kpis report-kpis no-print">
-        <div className="kpi"><span className="kpi-num">{rupees(t.receive - t.payment)}</span><span className="kpi-label">Cash (net)</span><span className="kpi-sub">In hand now {rupees(report.closing)}</span></div>
-        <div className="kpi"><span className="kpi-num">{rupees(t.bank)}</span><span className="kpi-label">Online</span><span className="kpi-sub">UPI, card, bank transfer</span></div>
-        <div className="kpi"><span className="kpi-num">{rupees(t.other)}</span><span className="kpi-label">City ledger</span><span className="kpi-sub">Company / OTA credit</span></div>
-        <div className="kpi"><span className="kpi-num">{rupees(t.receive - t.payment + t.bank + t.other)}</span><span className="kpi-label">Total collected</span><span className="kpi-sub">{report.lines.length} entries</span></div>
-      </div>
+      <ReportView result={result} />
 
-      <section className="card report-card">
-        <div className="report-scroll">
-          <table className="report">
-            <thead>
-              <tr>
-                <th>Sr.</th>
-                <th>Date</th>
-                <th>Particulars</th>
-                <th>Bill No</th>
-                <th className="num">Receive</th>
-                <th className="num">Payment</th>
-                <th className="num">Bank</th>
-                <th className="num">Other</th>
-                <th>Narration</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="report-balance">
-                <td />
-                <td>{formatDate(from)}</td>
-                <td><strong>Opening Balance</strong></td>
-                <td />
-                <td className="num">{amt(report.opening)}</td>
-                <td colSpan={4} />
-              </tr>
-              {report.lines.map((l, i) => (
-                <tr key={l.key}>
-                  <td>{i + 1}</td>
-                  <td className="nowrap">{formatDate(l.date)}<span className="muted small"> {formatTime(l.time)}</span></td>
-                  <td>{l.particulars}</td>
-                  <td className="mono">{l.ref}</td>
-                  <td className="num">{amt(l.receive)}</td>
-                  <td className="num">{amt(l.payment)}</td>
-                  <td className="num">{amt(l.bank)}</td>
-                  <td className="num">{amt(l.other)}</td>
-                  <td>
-                    {l.narration}
-                    {l.cashEntryId && (
-                      <button type="button" className="link danger-text no-print" onClick={() => removeCash(l.cashEntryId!)}> remove</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {!report.lines.length && (
-                <tr><td colSpan={9} className="muted">No payments in this period.</td></tr>
-              )}
-              <tr className="report-total">
-                <td colSpan={4}>Total</td>
-                <td className="num">{amt(t.receive)}</td>
-                <td className="num">{amt(t.payment)}</td>
-                <td className="num">{amt(t.bank)}</td>
-                <td className="num">{amt(t.other)}</td>
-                <td />
-              </tr>
-              <tr className="report-balance">
-                <td colSpan={4}><strong>Closing Balance</strong> <span className="muted small">(cash in hand)</span></td>
-                <td />
-                <td className="num"><strong>{amt(report.closing)}</strong></td>
-                <td colSpan={3} />
-              </tr>
-              <tr className="report-balance">
-                <td />
-                <td>{formatDate(addDays(to, 1))}</td>
-                <td><strong>Opening Balance</strong></td>
-                <td />
-                <td className="num"><strong>{amt(report.closing)}</strong></td>
-                <td colSpan={4} />
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <div className="report-summaries">
-        <section className="card report-card">
-          <table className="report">
-            <thead>
-              <tr><th>Payment mode</th><th className="num">Receive</th><th className="num">Payment</th><th className="num">Bank</th><th className="num">Other</th></tr>
-            </thead>
-            <tbody>
-              {report.groups.map((g) => (
-                <tr key={g.column}>
-                  <td>{g.label}</td>
-                  <td className="num">{amt(g.total.receive)}</td>
-                  <td className="num">{amt(g.total.payment)}</td>
-                  <td className="num">{amt(g.total.bank)}</td>
-                  <td className="num">{amt(g.total.other)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-
-        <section className="card report-card">
-          <table className="report">
-            <thead>
-              <tr><th>Payment mode</th><th className="num">Receive</th><th className="num">Payment</th><th className="num">Bank</th><th className="num">Other</th></tr>
-            </thead>
-            <tbody>
-              {report.groups.filter((g) => g.accounts.length).map((g) => (
-                <GroupRows key={g.column} label={g.label} accounts={g.accounts} />
-              ))}
-              <tr className="report-total">
-                <td>Grand Total</td>
-                <td className="num">{amt(t.receive)}</td>
-                <td className="num">{amt(t.payment)}</td>
-                <td className="num">{amt(t.bank)}</td>
-                <td className="num">{amt(t.other)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-      </div>
-
-      {moves.length > 0 && (
-        <section className="card report-card">
-          <h2 className="card-title">Room movement · {moves.length}</h2>
-          <div className="report-scroll">
-            <table className="report">
-              <thead>
-                <tr><th>Date</th><th>Guest</th><th>Bill No</th><th>From</th><th>To</th><th>Reason</th></tr>
-              </thead>
-              <tbody>
-                {moves.map((m) => (
-                  <tr key={m.id}>
-                    <td className="nowrap">{formatDate(m.date)}<span className="muted small"> {formatTime(m.time)}</span></td>
-                    <td><a href={`#/guest/${m.guest.id}`}>{m.guest.fullName}</a></td>
-                    <td className="mono">{m.guest.guestNo}</td>
-                    <td>{m.from} <span className="muted small">{m.fromType}</span></td>
-                    <td><strong>{m.to}</strong> <span className="muted small">{m.toType}</span></td>
-                    <td>{m.reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {isAdmin() && periodCash.length > 0 && (
+        <section className="card no-print">
+          <h2 className="card-title">Cash entries in this period</h2>
+          <ul className="cash-entries">
+            {periodCash.map((e) => (
+              <li key={e.id}>
+                <span>{formatDate(e.date)} {formatTime(e.time)} · {e.direction === 'out' ? 'Paid out' : 'Added'} {rupees(e.amount)} · {e.narration}{e.by && ` · by ${e.by}`}</span>
+                <button
+                  type="button"
+                  className="link danger-text"
+                  onClick={async () => {
+                    if (!confirm('Remove this cash entry?')) return;
+                    await deleteCashEntry(e.id);
+                    await load();
+                    onChanged('Cash entry removed');
+                  }}
+                >
+                  remove
+                </button>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
       <div className="print-only signatures">
-        <span>Prepared by{preparedBy && `: ${preparedBy}`}</span>
+        <span>Prepared by: {preparedBy}</span>
         <span>Checked by</span>
       </div>
     </div>
-  );
-}
-
-function GroupRows({ label, accounts }: { label: string; accounts: [string, { receive: number; payment: number; bank: number; other: number }][] }) {
-  return (
-    <>
-      <tr className="report-group"><td colSpan={5}>{label}</td></tr>
-      {accounts.map(([name, a]) => (
-        <tr key={name}>
-          <td className="report-account">{name}</td>
-          <td className="num">{amt(a.receive)}</td>
-          <td className="num">{amt(a.payment)}</td>
-          <td className="num">{amt(a.bank)}</td>
-          <td className="num">{amt(a.other)}</td>
-        </tr>
-      ))}
-    </>
   );
 }
 
@@ -339,6 +240,7 @@ function CashEntryForm({ defaultDate, onSave, onCancel }: { defaultDate: string;
               direction: direction === 'Paid out' ? 'out' : 'in',
               amount: Number(amount),
               narration: narration.trim(),
+              ...actor(),
             });
           }}
         >

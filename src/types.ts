@@ -10,9 +10,40 @@ export const PURPOSES = ['Tourism', 'Business', 'Family / Personal', 'Medical', 
 export const COVER_CHARGE = 'Cover charge'; // damage, missing items, extra cleaning...
 export const CHARGE_CATEGORIES = ['Food', 'Room Service', 'Laundry', 'Minibar', 'Extra Bed', COVER_CHARGE, 'Other'];
 
+// Who did something, and in which shift. Stamped on every payment, bill, cash entry and room move;
+// missing on records made before logins existed.
+export interface Stamp {
+  by?: string; // staff name
+  shiftId?: string;
+}
+
+export type Role = 'admin' | 'staff';
+
+// A front-desk login. Admins (owner / manager) manage users and settings and can delete or void entries.
+export interface User {
+  id: string;
+  name: string;
+  role: Role;
+  pinHash: string; // SHA-256 of salt + PIN; the PIN itself is never stored
+  salt: string;
+  active: boolean;
+  createdAt: string; // ISO
+}
+
+// A shift runs from a user's login to their "End shift". Any number per day.
+export interface Shift {
+  id: string;
+  userId: string;
+  userName: string;
+  startDate: string; // YYYY-MM-DD
+  startTime: string; // HH:MM
+  endDate?: string; // set when the shift ends
+  endTime?: string;
+}
+
 // One payment towards a stay's bill. A bill can be paid in several parts and modes.
 // A negative amount is a refund to the guest.
-export interface Payment {
+export interface Payment extends Stamp {
   id: string;
   amount: number;
   mode: PaymentMode;
@@ -32,7 +63,7 @@ export interface BillTo {
 }
 
 // An extra bill added to the stay's account (food, laundry, etc.)
-export interface Charge {
+export interface Charge extends Stamp {
   id: string;
   chargeNo: string; // child of the stay's bill ID, e.g. HSL000001-02
   billNo: string; // optional slip / KOT number from the restaurant or laundry
@@ -43,7 +74,7 @@ export interface Charge {
 }
 
 // A guest shifting rooms during a stay, e.g. 305 -> 308
-export interface RoomMove {
+export interface RoomMove extends Stamp {
   id: string;
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
@@ -139,11 +170,15 @@ export interface Guest {
   remarks: string;
   createdAt: string; // ISO
   checkedOutAt?: string; // ISO, set on actual check-out
+  checkedInBy?: string; // staff name
+  checkInShift?: string; // shift id
+  checkedOutBy?: string;
+  checkOutShift?: string;
 }
 
 // Cash moved in or out of the front-desk drawer outside guest bills: cash handed to the owner or
 // banked, petty expenses, or a float added. Shown in the payment report's cash column.
-export interface CashEntry {
+export interface CashEntry extends Stamp {
   id: string;
   date: string; // YYYY-MM-DD
   time: string; // HH:MM

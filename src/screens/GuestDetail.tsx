@@ -13,6 +13,7 @@ import { GuestPhotoView } from '../components/GuestPhoto';
 import { gstState, ROOM_SAC, splitGst } from '../gst';
 import { AddCharge, ChargeForm } from '../components/ChargeForm';
 import RoomChange from '../components/RoomChange';
+import { actor, getSession, isAdmin } from '../session';
 import {
   billFor, withCharge, formatAadhaar, formatDate, formatTime, go, isDueOutToday, maskId, nowTime, rupees, todayStr,
 } from '../utils';
@@ -111,6 +112,8 @@ export default function GuestDetail({
       checkOutDate: outDate,
       checkOutTime: outTime,
       checkedOutAt: new Date().toISOString(),
+      checkedOutBy: actor().by,
+      checkOutShift: actor().shiftId,
       payments: [...g.payments, ...(due ? toPayments(payRows, 'checkout', outBill.balance < 0 ? -1 : 1) : [])],
       billTo: g.billTo ?? (needsCompany ? { ...company, company: company.company.trim() } : undefined),
     });
@@ -128,6 +131,13 @@ export default function GuestDetail({
     setCoverOpen(false);
     onChanged(`Cover charge of ${rupees(Number(c.amount))} added`);
   };
+
+  const admin = isAdmin();
+  const staffLine = [
+    g.checkedInBy && `Checked in by ${g.checkedInBy}`,
+    g.checkedOutBy && `Checked out by ${g.checkedOutBy}`,
+    `Printed by ${getSession()?.user.name ?? '—'}`,
+  ].filter(Boolean).join(' · ');
 
   const remove = async () => {
     if (!confirm(`Delete the record of ${g.fullName}? This cannot be undone.`)) return;
@@ -164,6 +174,8 @@ export default function GuestDetail({
     ['Room type', roomTypeLabel],
     ['Guests', `${g.adults} adult(s), ${g.children} child(ren)`],
     ['Remarks', g.remarks],
+    ['Checked in by', g.checkedInBy ?? ''],
+    ['Checked out by', g.checkedOutBy ?? ''],
   ];
 
   return (
@@ -188,6 +200,7 @@ export default function GuestDetail({
             <br />Guest: {g.fullName}
           </p>
         )}
+        <p className="print-staff">{staffLine}</p>
       </div>
 
       <div className="detail-head">
@@ -413,12 +426,13 @@ export default function GuestDetail({
                   {c.category}
                   {c.description && <span className="muted"> — {c.description}</span>}
                   {c.billNo && <span className="muted"> · slip {c.billNo}</span>}
+                  {c.by && <span className="muted"> · by {c.by}</span>}
                 </td>
                 <td />
                 <td className="num">{rupees(Number(c.amount))}</td>
                 {inHouse && (
                   <td className="no-print">
-                    <button
+                    {admin && <button
                       className="link danger-text"
                       onClick={() =>
                         confirm(`Remove bill ${c.chargeNo} (${rupees(Number(c.amount))})?`) &&
@@ -426,7 +440,7 @@ export default function GuestDetail({
                       }
                     >
                       Remove
-                    </button>
+                    </button>}
                   </td>
                 )}
               </tr>
@@ -460,7 +474,7 @@ export default function GuestDetail({
           payments={g.payments}
           hotelGstin={settings.gstin}
           onRemovePayment={
-            inHouse
+            inHouse && admin
               ? (p) =>
                   confirm(`Remove the ${p.mode} payment of ${rupees(Math.abs(p.amount))}?`) &&
                   savePayments(g.payments.filter((x) => x.id !== p.id), 'Payment removed')
@@ -541,13 +555,13 @@ export default function GuestDetail({
 
       <div className="print-only signatures">
         <span>Guest signature</span>
-        <span>Receptionist signature</span>
+        <span>Receptionist: {inHouse ? g.checkedInBy ?? getSession()?.user.name : g.checkedOutBy ?? getSession()?.user.name}</span>
       </div>
 
       <div className="actions no-print">
         <a className="btn" href={`#/edit/${g.id}`}>Edit details</a>
         <button className="btn" onClick={() => window.print()}>{inHouse ? 'Print registration card' : 'Print bill'}</button>
-        <button className="btn btn-ghost danger-text" onClick={remove}>Delete record</button>
+        {admin && <button className="btn btn-ghost danger-text" onClick={remove}>Delete record</button>}
       </div>
     </div>
   );

@@ -71,7 +71,7 @@ export function PaymentLines({ payments, onRemove }: { payments: Payment[]; onRe
         <div key={p.id} className="pay-line">
           <dt>
             {p.amount < 0 ? 'Refunded' : 'Paid'} · <strong>{p.mode}</strong>
-            <span className="muted"> · {formatDate(p.date)}, {label[p.kind]}</span>
+            <span className="muted"> · {formatDate(p.date)}, {label[p.kind]}{p.by && ` · by ${p.by}`}</span>
             {onRemove && (
               <button type="button" className="link danger-text no-print pay-remove" onClick={() => onRemove(p)}>
                 remove

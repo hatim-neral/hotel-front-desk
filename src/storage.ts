@@ -1,12 +1,16 @@
 // All data access goes through this file. Today it uses the browser's
 // localStorage; to move to a server or a mobile database later, only
 // these functions need to change — the screens stay the same.
-import type { CashEntry, Guest, Payment, PaymentMode, Room, RoomType, Settings } from './types';
+import type { CashEntry, Guest, Payment, PaymentMode, Room, RoomType, Settings, Shift, User } from './types';
 
 const GUESTS_KEY = 'hotel.guests.v1';
 const SETTINGS_KEY = 'hotel.settings.v1';
 const ROOMS_KEY = 'hotel.rooms.v1';
 const CASHBOOK_KEY = 'hotel.cashbook.v1';
+const USERS_KEY = 'hotel.users.v1';
+const SHIFTS_KEY = 'hotel.shifts.v1';
+const SESSION_KEY = 'hotel.session.v1';
+const RECOVERY_KEY = 'hotel.recovery.v1';
 
 export const DEFAULT_SETTINGS: Settings = {
   hotelName: 'My Hotel',
@@ -247,6 +251,57 @@ export async function saveCashEntry(entry: CashEntry): Promise<void> {
 
 export async function deleteCashEntry(id: string): Promise<void> {
   localStorage.setItem(CASHBOOK_KEY, JSON.stringify((await listCashEntries()).filter((e) => e.id !== id)));
+}
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function listUsers(): Promise<User[]> {
+  return readJson<User[]>(USERS_KEY, []);
+}
+
+export async function saveUser(user: User): Promise<void> {
+  const users = (await listUsers()).filter((u) => u.id !== user.id);
+  localStorage.setItem(USERS_KEY, JSON.stringify([...users, user]));
+}
+
+export async function listShifts(): Promise<Shift[]> {
+  return readJson<Shift[]>(SHIFTS_KEY, []).sort((a, b) => (b.startDate + b.startTime).localeCompare(a.startDate + a.startTime));
+}
+
+export async function saveShift(shift: Shift): Promise<void> {
+  const shifts = readJson<Shift[]>(SHIFTS_KEY, []).filter((x) => x.id !== shift.id);
+  localStorage.setItem(SHIFTS_KEY, JSON.stringify([...shifts, shift]));
+}
+
+// Who is logged in on this device, and their open shift
+export interface SessionRef {
+  userId: string;
+  shiftId: string;
+}
+
+export function loadSessionRef(): SessionRef | null {
+  return readJson<SessionRef | null>(SESSION_KEY, null);
+}
+
+export function saveSessionRef(ref: SessionRef | null): void {
+  if (ref) localStorage.setItem(SESSION_KEY, JSON.stringify(ref));
+  else localStorage.removeItem(SESSION_KEY);
+}
+
+// Hash of the owner's recovery code, for resetting an admin PIN that was forgotten
+export function loadRecovery(): { hash: string; salt: string } | null {
+  return readJson<{ hash: string; salt: string } | null>(RECOVERY_KEY, null);
+}
+
+export function saveRecovery(r: { hash: string; salt: string }): void {
+  localStorage.setItem(RECOVERY_KEY, JSON.stringify(r));
 }
 
 export function newId(): string {

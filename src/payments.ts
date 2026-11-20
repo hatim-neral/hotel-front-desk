@@ -1,5 +1,6 @@
 import type { BillTo, Payment, PaymentMode } from './types';
 import { newId } from './storage';
+import { actor } from './session';
 import { nowTime, todayStr } from './utils';
 
 // A payment row being filled in on screen
@@ -24,6 +25,7 @@ export function toPayments(rows: PaymentDraft[], kind: Payment['kind'], sign = 1
       kind,
       date: r.date ?? todayStr(),
       time: r.time ?? nowTime(),
+      ...actor(),
     }));
 }
 

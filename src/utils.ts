@@ -1,5 +1,6 @@
 import type { Charge, Guest, Settings } from './types';
 import { COVER_CHARGE } from './types';
+import { actor } from './session';
 
 export function go(path: string) {
   location.hash = '#/' + path;
@@ -110,9 +111,10 @@ export function toCsv(guests: Guest[]): string {
 }
 
 // Adds a bill to an open stay, giving it the next child ID: HSL000001-01, HSL000001-02, ...
+// and stamping who added it.
 export function withCharge(g: Guest, c: Charge): Guest {
   const last = Math.max(0, ...g.charges.map((x) => Number(x.chargeNo.split('-').pop()) || 0));
-  return { ...g, charges: [...g.charges, { ...c, chargeNo: `${g.guestNo}-${String(last + 1).padStart(2, '0')}` }] };
+  return { ...g, charges: [...g.charges, { ...c, ...actor(), chargeNo: `${g.guestNo}-${String(last + 1).padStart(2, '0')}` }] };
 }
 
 export function rupees(n: number): string {
