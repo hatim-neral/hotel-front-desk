@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ],
   nextGuestNo: 1,
   gstRate: 5,
+  gstHighRate: 18,
+  gstSlabLimit: 7500,
   gstin: '',
 };
 
@@ -64,6 +66,7 @@ function readGuests(): Guest[] {
         idPhotos: g.idPhotos ?? [],
         guestPhoto: g.guestPhoto ?? '',
         billTo: g.billTo && Object.assign({ contactPerson: '', phone: '', email: '' }, g.billTo), // company contact fields came later
+        roomMoves: g.roomMoves ?? [],
         companions: (g.companions ?? []).map((c) => ({ ...companionDefaults, ...c })),
       };
     });

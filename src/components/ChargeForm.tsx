@@ -1,23 +1,25 @@
 import { useState } from 'react';
 import type { Charge } from '../types';
-import { CHARGE_CATEGORIES } from '../types';
+import { CHARGE_CATEGORIES, COVER_CHARGE } from '../types';
 import { newId } from '../storage';
 import { Field, Segmented } from './ui';
 import { todayStr } from '../utils';
 
-const blank = (): Charge => ({ id: newId(), chargeNo: '', billNo: '', category: 'Food', description: '', amount: '', date: todayStr() });
+const blank = (category = 'Food'): Charge => ({ id: newId(), chargeNo: '', billNo: '', category, description: '', amount: '', date: todayStr() });
 
 // The bill entry form: amount, type, optional slip number, details. The bill gets its own ID
 // (e.g. HSL000001-02) when it is added to the stay. Used on the guest page and the Add Bill screen.
 export function ChargeForm({
-  existingBillNos, onAdd, onCancel, submitLabel = 'Add to bill',
+  existingBillNos, onAdd, onCancel, submitLabel = 'Add to bill', category,
 }: {
   existingBillNos: string[];
   onAdd: (c: Charge) => void;
   onCancel?: () => void;
   submitLabel?: string;
+  category?: string; // start on this type, e.g. the cover charge
 }) {
-  const [c, setC] = useState<Charge>(blank);
+  const [c, setC] = useState<Charge>(() => blank(category));
+  const cover = c.category === COVER_CHARGE;
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const submit = (e: React.FormEvent) => {
@@ -28,7 +30,7 @@ export function ChargeForm({
     setErrors(errs);
     if (Object.keys(errs).length) return;
     onAdd({ ...c, billNo: c.billNo.trim(), description: c.description.trim() });
-    setC(blank());
+    setC(blank(category));
   };
 
   return (
@@ -46,8 +48,12 @@ export function ChargeForm({
         <Field label="Type" wide>
           <Segmented options={CHARGE_CATEGORIES} value={c.category} onChange={(v) => setC({ ...c, category: v })} />
         </Field>
-        <Field label="Details (optional)" wide>
-          <input value={c.description} placeholder="e.g. Dinner — 2 thali" onChange={(e) => setC({ ...c, description: e.target.value })} />
+        <Field label={cover ? 'Reason (optional)' : 'Details (optional)'} wide>
+          <input
+            value={c.description}
+            placeholder={cover ? 'e.g. Broken lamp, stained bedsheet, missing towel' : 'e.g. Dinner — 2 thali'}
+            onChange={(e) => setC({ ...c, description: e.target.value })}
+          />
         </Field>
       </div>
       <div className="actions">
@@ -58,23 +64,26 @@ export function ChargeForm({
   );
 }
 
-// "+ Add bill" button that opens the form in place.
+// "+ Add bill" and "+ Cover charge" buttons that open the form in place.
 export function AddCharge({ existingBillNos, onAdd }: { existingBillNos: string[]; onAdd: (c: Charge) => void }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<'' | 'bill' | 'cover'>('');
   if (!open) {
     return (
       <div className="no-print add-charge-btn">
-        <button className="btn btn-primary" onClick={() => setOpen(true)}>+ Add bill (food, laundry…)</button>
+        <button className="btn btn-primary" onClick={() => setOpen('bill')}>+ Add bill (food, laundry…)</button>
+        <button className="btn" onClick={() => setOpen('cover')}>+ Cover charge (damage etc.)</button>
       </div>
     );
   }
   return (
     <ChargeForm
+      category={open === 'cover' ? COVER_CHARGE : undefined}
+      submitLabel={open === 'cover' ? 'Add cover charge' : undefined}
       existingBillNos={existingBillNos}
-      onCancel={() => setOpen(false)}
+      onCancel={() => setOpen('')}
       onAdd={(c) => {
         onAdd(c);
-        setOpen(false);
+        setOpen('');
       }}
     />
   );

@@ -21,7 +21,7 @@ function base(id: string): Guest {
     purpose: 'Tourism', arrivingFrom: '', goingTo: '', vehicleNumber: '',
     roomNumber: '', roomType: 'Standard', adults: 1, children: 0, companions: [],
     checkInDate: todayStr(), checkInTime: '12:00', checkOutDate: addDays(todayStr(), 1), checkOutTime: '11:00',
-    ratePerNight: '', gstRate: 5, payments: [], charges: [],
+    ratePerNight: '', gstRate: 5, gstRoomOnly: true, payments: [], charges: [], roomMoves: [],
     remarks: '', createdAt: new Date().toISOString(),
   };
 }

@@ -453,7 +453,7 @@ button.quick-result { width: 100%; border: none; background: none; font: inherit
 .bill th { text-align: left; font-size: 0.82rem; color: var(--muted); font-weight: 600; padding: 8px 6px; border-bottom: 1px solid var(--border); }
 .bill td { padding: 10px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .bill .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.add-charge-btn { margin: 14px 0 4px; }
+.add-charge-btn { margin: 14px 0 4px; display: flex; gap: 10px; flex-wrap: wrap; }
 .add-charge {
   display: flex; flex-direction: column; gap: 14px; margin: 14px 0 4px; padding: 16px;
   border: 1px solid var(--primary); border-radius: var(--radius); background: var(--primary-soft);

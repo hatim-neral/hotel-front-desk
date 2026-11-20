@@ -104,11 +104,11 @@ export default function App() {
       screen = <GuestList guests={guests} filter={(param as ListFilter) || 'inhouse'} />;
       break;
     case 'guest':
-      screen = <GuestDetail key={param} guest={guests.find((g) => g.id === param)} settings={settings} onChanged={notify} />;
+      screen = <GuestDetail key={param} guest={guests.find((g) => g.id === param)} guests={guests} rooms={rooms} settings={settings} onChanged={notify} />;
       break;
     case 'checkout':
       screen = param ? (
-        <GuestDetail key={`checkout-${param}`} guest={guests.find((g) => g.id === param)} settings={settings} onChanged={notify} startCheckout />
+        <GuestDetail key={`checkout-${param}`} guest={guests.find((g) => g.id === param)} guests={guests} rooms={rooms} settings={settings} onChanged={notify} startCheckout />
       ) : (
         <CheckOutList guests={guests} />
       );

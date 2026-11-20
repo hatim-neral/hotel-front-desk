@@ -1,4 +1,5 @@
-import type { Charge, Guest } from './types';
+import type { Charge, Guest, Settings } from './types';
+import { COVER_CHARGE } from './types';
 
 export function go(path: string) {
   location.hash = '#/' + path;
@@ -120,17 +121,30 @@ export function rupees(n: number): string {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// GST slab for a room price: up to the limit (₹7,500/night) the lower rate, above it the higher rate
+export function gstRateFor(settings: Settings, ratePerNight: string | number): number {
+  return (Number(ratePerNight) || 0) > settings.gstSlabLimit ? settings.gstHighRate : settings.gstRate;
+}
+
 // Running bill for a stay. While in-house, room nights are counted up to today (minimum 1).
-// GST is added on room charges and extra bills; payments (and refunds, as negatives) are taken off.
+// GST is charged on room charges only; extra bills and the cover charge have none. (Stays from before
+// this rule taxed the whole bill and keep doing so.) Payments, and refunds as negatives, are taken off.
 export function billFor(g: Guest) {
   const nights = Math.max(1, nightsBetween(g.checkInDate, g.status === 'in' ? todayStr() : g.checkOutDate));
   const roomTotal = nights * (Number(g.ratePerNight) || 0);
-  const extras = g.charges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
-  const subtotal = roomTotal + extras;
-  const gst = round2((subtotal * (g.gstRate || 0)) / 100);
+  const amountOf = (cover: boolean) =>
+    g.charges.filter((c) => (c.category === COVER_CHARGE) === cover).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  const extras = amountOf(false);
+  const cover = amountOf(true);
+  const subtotal = roomTotal + extras + cover;
+  const taxable = g.gstRoomOnly ? roomTotal : subtotal;
+  const gst = round2((taxable * (g.gstRate || 0)) / 100);
   const total = round2(subtotal + gst);
   const paid = round2(g.payments.reduce((sum, p) => sum + p.amount, 0));
-  return { nights, roomTotal, extras, subtotal, gstRate: g.gstRate || 0, gst, total, paid, balance: round2(total - paid) };
+  return {
+    nights, roomTotal, extras, cover, subtotal, taxable, roomOnly: !!g.gstRoomOnly,
+    gstRate: g.gstRate || 0, gst, total, paid, balance: round2(total - paid),
+  };
 }
 
 // Shrinks a camera photo to a readable JPEG (max 1600px) so it stays small in storage.

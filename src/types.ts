@@ -7,7 +7,8 @@ export const VISA_TYPES = ['e-Tourist', 'Tourist', 'e-Business', 'Business', 'Em
 export const ID_TYPES: IdType[] = ['Aadhaar', 'Passport', 'Driving Licence', 'Voter ID', 'Other'];
 export const PAYMENT_MODES: PaymentMode[] = ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Company / OTA'];
 export const PURPOSES = ['Tourism', 'Business', 'Family / Personal', 'Medical', 'Pilgrimage', 'Other'];
-export const CHARGE_CATEGORIES = ['Food', 'Room Service', 'Laundry', 'Minibar', 'Extra Bed', 'Other'];
+export const COVER_CHARGE = 'Cover charge'; // damage, missing items, extra cleaning...
+export const CHARGE_CATEGORIES = ['Food', 'Room Service', 'Laundry', 'Minibar', 'Extra Bed', COVER_CHARGE, 'Other'];
 
 // One payment towards a stay's bill. A bill can be paid in several parts and modes.
 // A negative amount is a refund to the guest.
@@ -39,6 +40,18 @@ export interface Charge {
   description: string;
   amount: string;
   date: string; // YYYY-MM-DD
+}
+
+// A guest shifting rooms during a stay, e.g. 305 -> 308
+export interface RoomMove {
+  id: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  from: string;
+  to: string;
+  fromType: string;
+  toType: string;
+  reason: string;
 }
 
 // Another adult in the room. For Indian guests only the name is required;
@@ -109,6 +122,7 @@ export interface Guest {
   adults: number;
   children: number;
   companions: Companion[];
+  roomMoves: RoomMove[]; // every room change during the stay, oldest first
   checkInDate: string; // YYYY-MM-DD
   checkInTime: string; // HH:MM
   checkOutDate: string; // optional at check-in; set to the actual date on check-out
@@ -116,7 +130,8 @@ export interface Guest {
 
   // Payment
   ratePerNight: string;
-  gstRate: number; // % added on room charges and extra bills; fixed for the stay at check-in
+  gstRate: number; // % GST for this stay, from the room price slab
+  gstRoomOnly?: boolean; // GST on room charges only (all stays from now on); older stays taxed the whole bill
   payments: Payment[];
   billTo?: BillTo; // set when a company pays the bill
   charges: Charge[];
@@ -157,6 +172,8 @@ export interface Settings {
   defaultCheckOutTime: string;
   roomTypes: RoomType[];
   nextGuestNo: number;
-  gstRate: number; // %, applied to new check-ins
+  gstRate: number; // %, GST on room charges when the room price is up to gstSlabLimit per night
+  gstHighRate: number; // %, GST when the room price is above gstSlabLimit
+  gstSlabLimit: number; // ₹ per night
   gstin: string; // hotel's GST number, printed on bills
 }

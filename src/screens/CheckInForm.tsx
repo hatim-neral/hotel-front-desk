@@ -11,7 +11,7 @@ import { draftTotal, emptyBillTo, toPayments, type PaymentDraft } from '../payme
 import CompanyFields from '../components/CompanyFields';
 import PlaceFields, { COUNTRY_LIST_ID, CountryList } from '../components/PlaceFields';
 import { findRoom, rateFor, ROOM_STATE_LABEL, roomViews, typeLabel } from '../rooms';
-import { addDays, formatAadhaar, formatDate, go, nightsBetween, nowTime, rupees, todayStr } from '../utils';
+import { addDays, formatAadhaar, formatDate, go, gstRateFor, nightsBetween, nowTime, rupees, todayStr } from '../utils';
 
 function blankGuest(settings: Settings, room?: Room): Guest {
   return {
@@ -26,7 +26,7 @@ function blankGuest(settings: Settings, room?: Room): Guest {
     roomNumber: room?.number ?? '', roomType: room?.type ?? settings.roomTypes[0]?.name ?? '', adults: 1, children: 0, companions: [],
     checkInDate: todayStr(), checkInTime: nowTime(),
     checkOutDate: '', checkOutTime: settings.defaultCheckOutTime,
-    ratePerNight: room ? rateFor(settings, room.type) : '', gstRate: settings.gstRate, payments: [], charges: [],
+    ratePerNight: room ? rateFor(settings, room.type) : '', gstRate: settings.gstRate, gstRoomOnly: true, payments: [], charges: [], roomMoves: [],
     remarks: '', createdAt: new Date().toISOString(),
   };
 }
@@ -41,7 +41,7 @@ function returningStay(prev: Guest, settings: Settings, rooms: Room[], guests: G
   const guest: Guest = {
     ...prev,
     id: fresh.id, guestNo: '', status: 'in', idPhotos: [], guestPhoto: '',
-    roomNumber: fresh.roomNumber, roomType: fresh.roomType, ratePerNight: fresh.ratePerNight, gstRate: fresh.gstRate,
+    roomNumber: fresh.roomNumber, roomType: fresh.roomType, ratePerNight: fresh.ratePerNight, gstRate: fresh.gstRate, gstRoomOnly: true, roomMoves: [],
     checkInDate: fresh.checkInDate, checkInTime: fresh.checkInTime, checkOutDate: '', checkOutTime: fresh.checkOutTime,
     payments: [], charges: [], remarks: '', createdAt: fresh.createdAt, checkedOutAt: undefined,
   };
@@ -214,7 +214,9 @@ export default function CheckInForm({
 
   const nights = nightsBetween(g.checkInDate, g.checkOutDate);
   const roomTotal = nights * (Number(g.ratePerNight) || 0);
-  const gst = Math.round(roomTotal * g.gstRate) / 100;
+  // GST follows the room price slab (5% up to ₹7,500/night, 18% above); stays from before keep their old rate
+  const gstRate = g.gstRoomOnly ? gstRateFor(settings, g.ratePerNight) : g.gstRate;
+  const gst = Math.round(roomTotal * gstRate) / 100;
   const total = roomTotal + gst;
   const advance = draftTotal(advanceRows);
   const isIndian = g.nationality === 'Indian';
@@ -229,8 +231,16 @@ export default function CheckInForm({
       setTimeout(() => document.querySelector('.has-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
       return;
     }
+    const moved = existing?.status === 'in' && existing.roomNumber.toLowerCase() !== g.roomNumber.trim().toLowerCase();
     const clean: Guest = {
       ...g,
+      gstRate,
+      roomMoves: moved
+        ? [...g.roomMoves, {
+            id: newId(), date: todayStr(), time: nowTime(), from: existing.roomNumber, to: g.roomNumber.trim(),
+            fromType: existing.roomType, toType: g.roomType, reason: 'Changed in Edit details',
+          }]
+        : g.roomMoves,
       payments: [...g.payments.filter((p) => p.kind !== 'advance'), ...toPayments(advanceRows, 'advance')],
       fullName: g.fullName.trim(),
       billTo: g.billTo && { ...g.billTo, company: g.billTo.company.trim(), gstin: g.billTo.gstin.trim().toUpperCase() },
@@ -244,7 +254,7 @@ export default function CheckInForm({
     await Promise.all(Object.entries(newPhotos).filter(([id]) => kept.includes(id)).map(([id, url]) => savePhoto(id, url)));
     await Promise.all([...(existing?.idPhotos ?? []), existing?.guestPhoto ?? ''].filter((id) => id && !kept.includes(id)).map(deletePhoto));
     await saveGuest(clean);
-    if (existing?.status === 'in' && existing.roomNumber.toLowerCase() !== clean.roomNumber.toLowerCase()) {
+    if (moved) {
       await updateRoom(existing.roomNumber, { housekeeping: 'dirty' }); // guest moved rooms; old room needs cleaning
     }
     onSaved(
@@ -535,8 +545,11 @@ export default function CheckInForm({
         <Field label="Rate per night (₹)" hint="Filled from the room type — change it for a discount">
           <input inputMode="decimal" value={g.ratePerNight} onChange={(e) => set('ratePerNight', e.target.value.replace(/[^\d.]/g, ''))} />
         </Field>
-        <Field label="GST" hint={existing ? 'Fixed for this stay' : 'Change the rate in Settings'}>
-          <input value={`${g.gstRate}%`} disabled />
+        <Field
+          label="GST on room"
+          hint={g.gstRoomOnly ? `${settings.gstRate}% up to ${rupees(settings.gstSlabLimit)}/night, ${settings.gstHighRate}% above` : 'Fixed for this stay'}
+        >
+          <input value={`${gstRate}%`} disabled />
         </Field>
         <Field label="Who pays the bill?" wide>
           <Segmented
@@ -552,7 +565,7 @@ export default function CheckInForm({
         {roomTotal > 0 && (
           <div className="summary wide">
             <span>
-              {nights} night{nights !== 1 && 's'} × {rupees(Number(g.ratePerNight))} + GST {g.gstRate}% = <strong>{rupees(total)}</strong>
+              {nights} night{nights !== 1 && 's'} × {rupees(Number(g.ratePerNight))} + GST {gstRate}% = <strong>{rupees(total)}</strong>
             </span>
             <span>Balance due: <strong>{rupees(total - advance)}</strong></span>
           </div>

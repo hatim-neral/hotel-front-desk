@@ -67,6 +67,10 @@ export default function Reports({ guests, settings, onChanged }: { guests: Guest
   };
 
   const t = report.totals;
+  const moves = guests
+    .flatMap((g) => g.roomMoves.map((m) => ({ ...m, guest: g })))
+    .filter((m) => m.date >= from && m.date <= to)
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 
   return (
     <div className="stack report-page">
@@ -244,6 +248,31 @@ export default function Reports({ guests, settings, onChanged }: { guests: Guest
           </table>
         </section>
       </div>
+
+      {moves.length > 0 && (
+        <section className="card report-card">
+          <h2 className="card-title">Room movement · {moves.length}</h2>
+          <div className="report-scroll">
+            <table className="report">
+              <thead>
+                <tr><th>Date</th><th>Guest</th><th>Bill No</th><th>From</th><th>To</th><th>Reason</th></tr>
+              </thead>
+              <tbody>
+                {moves.map((m) => (
+                  <tr key={m.id}>
+                    <td className="nowrap">{formatDate(m.date)}<span className="muted small"> {formatTime(m.time)}</span></td>
+                    <td><a href={`#/guest/${m.guest.id}`}>{m.guest.fullName}</a></td>
+                    <td className="mono">{m.guest.guestNo}</td>
+                    <td>{m.from} <span className="muted small">{m.fromType}</span></td>
+                    <td><strong>{m.to}</strong> <span className="muted small">{m.toType}</span></td>
+                    <td>{m.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <div className="print-only signatures">
         <span>Prepared by{preparedBy && `: ${preparedBy}`}</span>

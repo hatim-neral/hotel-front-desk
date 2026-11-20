@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { BillTo, Charge, Guest, Payment, Settings } from '../types';
+import type { BillTo, Charge, Guest, Payment, Room, Settings } from '../types';
+import { COVER_CHARGE } from '../types';
 import { deleteGuest, saveGuest, updateRoom } from '../storage';
 import { Field, StatusBadge } from '../components/ui';
 import { typeLabel } from '../rooms';
@@ -10,15 +11,18 @@ import { billToErrors } from '../validation';
 import IdPhotos from '../components/IdPhotos';
 import { GuestPhotoView } from '../components/GuestPhoto';
 import { gstState, ROOM_SAC, splitGst } from '../gst';
-import { AddCharge } from '../components/ChargeForm';
+import { AddCharge, ChargeForm } from '../components/ChargeForm';
+import RoomChange from '../components/RoomChange';
 import {
   billFor, withCharge, formatAadhaar, formatDate, formatTime, go, isDueOutToday, maskId, nowTime, rupees, todayStr,
 } from '../utils';
 
 export default function GuestDetail({
-  guest: g, settings, onChanged, startCheckout,
+  guest: g, guests, rooms, settings, onChanged, startCheckout,
 }: {
   guest?: Guest;
+  guests: Guest[];
+  rooms: Room[];
   settings: Settings;
   onChanged: (msg: string) => void;
   startCheckout?: boolean; // opened from the Check-Out screen: show the confirm step straight away
@@ -37,6 +41,8 @@ export default function GuestDetail({
   // Actual check-out date and time; starts at now, can be changed if the guest left earlier
   const [outDate, setOutDate] = useState(todayStr);
   const [outTime, setOutTime] = useState(nowTime);
+  const [coverOpen, setCoverOpen] = useState(false);
+  const [changingRoom, setChangingRoom] = useState(false);
 
   if (!g) return <p className="muted">Guest not found. <a href="#/">Go home</a></p>;
 
@@ -111,6 +117,16 @@ export default function GuestDetail({
     await updateRoom(g.roomNumber, { housekeeping: 'dirty' }); // room needs cleaning before the next guest
     setConfirmOut(false);
     onChanged(`${g.fullName} checked out of room ${g.roomNumber} — bill ${g.guestNo} closed`);
+  };
+
+  // Cover charge found at check-out (damage etc.): add it, then collect the new balance
+  const addCoverAtCheckout = async (c: Charge) => {
+    const updated = withCharge(g, c);
+    await saveGuest(updated);
+    const b = billFor({ ...updated, status: 'out', checkOutDate: outDate });
+    setPayRows([{ amount: String(Math.abs(b.balance)), mode: payRows[0]?.mode ?? 'Cash' }]);
+    setCoverOpen(false);
+    onChanged(`Cover charge of ${rupees(Number(c.amount))} added`);
   };
 
   const remove = async () => {
@@ -239,6 +255,19 @@ export default function GuestDetail({
                 </Field>
               </div>
               <BillSummary bill={outBill} payments={g.payments} hotelGstin={settings.gstin} />
+              {coverOpen ? (
+                <ChargeForm
+                  category={COVER_CHARGE}
+                  submitLabel="Add cover charge"
+                  existingBillNos={g.charges.map((c) => c.billNo.toLowerCase()).filter(Boolean)}
+                  onCancel={() => setCoverOpen(false)}
+                  onAdd={addCoverAtCheckout}
+                />
+              ) : (
+                <button type="button" className="link" onClick={() => setCoverOpen(true)}>
+                  + Cover charge (damage, missing items…)
+                </button>
+              )}
               {due > 0 && (
                 <div className="settle">
                   <div className="settle-head">
@@ -285,9 +314,23 @@ export default function GuestDetail({
                 Check Out
               </button>
               <button className="btn btn-xl" onClick={() => setRecording(true)}>Record payment</button>
+              <button className="btn btn-xl" onClick={() => setChangingRoom(true)}>Change room</button>
             </>
           )}
         </div>
+      )}
+      {changingRoom && inHouse && (
+        <RoomChange
+          guest={g}
+          guests={guests}
+          rooms={rooms}
+          settings={settings}
+          onCancel={() => setChangingRoom(false)}
+          onDone={(msg) => {
+            setChangingRoom(false);
+            onChanged(msg);
+          }}
+        />
       )}
       {!inHouse && (
         <div className="actions no-print">
@@ -354,6 +397,9 @@ export default function GuestDetail({
               <td>
                 Room {g.roomNumber} ({roomTypeLabel}): {bill.nights} night{bill.nights > 1 && 's'} × {rupees(Number(g.ratePerNight) || 0)}
                 {inHouse && <span className="muted"> (so far)</span>}
+                {g.roomMoves.length > 0 && (
+                  <span className="muted"> · shifted from {g.roomMoves.map((m) => m.from).join(', ')}</span>
+                )}
               </td>
               <td className="mono">{ROOM_SAC}</td>
               <td className="num">{rupees(bill.roomTotal)}</td>
@@ -423,6 +469,33 @@ export default function GuestDetail({
         />
       </section>
 
+      {g.roomMoves.length > 0 && (
+        <section className="card">
+          <h2 className="card-title">Room movement · {g.roomMoves.length}</h2>
+          <table className="bill">
+            <thead>
+              <tr><th>Date</th><th>From</th><th>To</th><th>Reason</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{formatDate(g.checkInDate)}, {formatTime(g.checkInTime)}</td>
+                <td className="muted">Check-in</td>
+                <td><strong>{g.roomMoves[0].from}</strong> <span className="muted">{g.roomMoves[0].fromType}</span></td>
+                <td />
+              </tr>
+              {g.roomMoves.map((m) => (
+                <tr key={m.id}>
+                  <td>{formatDate(m.date)}, {formatTime(m.time)}</td>
+                  <td>{m.from}</td>
+                  <td><strong>{m.to}</strong> <span className="muted">{m.toType}</span></td>
+                  <td>{m.reason || <span className="muted">—</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
       <section className="card">
         <h2 className="card-title">ID proof photos</h2>
         <IdPhotos ids={g.idPhotos} />
@@ -489,14 +562,34 @@ function BillSummary({
   onRemovePayment?: (p: Payment) => void;
 }) {
   const split = splitGst(bill.gst, bill.gstRate, hotelGstin);
-  return (
-    <dl className="totals">
-      <div><dt>Room charges</dt><dd>{rupees(bill.roomTotal)}</dd></div>
-      <div><dt>Extra bills</dt><dd>{rupees(bill.extras)}</dd></div>
-      <div className="totals-sub"><dt>Taxable value</dt><dd>{rupees(bill.subtotal)}</dd></div>
+  const gstLines = (
+    <>
       <div><dt>CGST {split.half}%</dt><dd>{rupees(split.central)}</dd></div>
       <div><dt>{split.stateLabel} {split.half}%</dt><dd>{rupees(split.state)}</dd></div>
-      <div className="totals-sub"><dt>Total GST {bill.gstRate}%</dt><dd>{rupees(bill.gst)}</dd></div>
+    </>
+  );
+  const cover = bill.cover > 0 && <div><dt>Cover charge</dt><dd>{rupees(bill.cover)}</dd></div>;
+  return (
+    <dl className="totals">
+      {bill.roomOnly ? (
+        // GST on the room only; extra bills and cover charge are added after, without GST
+        <>
+          <div><dt>Room charges (taxable)</dt><dd>{rupees(bill.roomTotal)}</dd></div>
+          {gstLines}
+          <div className="totals-sub"><dt>Room + GST {bill.gstRate}%</dt><dd>{rupees(bill.roomTotal + bill.gst)}</dd></div>
+          <div><dt>Extra bills <span className="muted">(no GST)</span></dt><dd>{rupees(bill.extras)}</dd></div>
+          {cover}
+        </>
+      ) : (
+        <>
+          <div><dt>Room charges</dt><dd>{rupees(bill.roomTotal)}</dd></div>
+          <div><dt>Extra bills</dt><dd>{rupees(bill.extras)}</dd></div>
+          {cover}
+          <div className="totals-sub"><dt>Taxable value</dt><dd>{rupees(bill.taxable)}</dd></div>
+          {gstLines}
+          <div className="totals-sub"><dt>Total GST {bill.gstRate}%</dt><dd>{rupees(bill.gst)}</dd></div>
+        </>
+      )}
       <div className="totals-strong"><dt>Total</dt><dd>{rupees(bill.total)}</dd></div>
       <PaymentLines payments={payments} onRemove={onRemovePayment} />
       <div className={`totals-strong ${bill.balance > 0 ? 'due' : ''}`}>

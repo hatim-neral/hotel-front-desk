@@ -7,6 +7,8 @@ import { Field, Section, Segmented } from '../components/ui';
 import { isValidGstin } from '../validation';
 import { rupees, toCsv, todayStr } from '../utils';
 
+const pct = (v: string) => Math.min(100, Number(v.replace(/[^\d.]/g, '')) || 0);
+
 export default function SettingsScreen({
   settings, guests, rooms, onSaved,
 }: {
@@ -72,11 +74,17 @@ export default function SettingsScreen({
           <Field label="Default check-out time">
             <input type="time" value={s.defaultCheckOutTime} onChange={(e) => setS({ ...s, defaultCheckOutTime: e.target.value })} />
           </Field>
-          <Field label="GST rate (%)" hint="Added on room charges and extra bills for new check-ins">
+          <Field label={`GST on rooms up to ${rupees(s.gstSlabLimit)}/night (%)`}>
+            <input inputMode="decimal" value={s.gstRate} onChange={(e) => setS({ ...s, gstRate: pct(e.target.value) })} />
+          </Field>
+          <Field label={`GST on rooms above ${rupees(s.gstSlabLimit)}/night (%)`}>
+            <input inputMode="decimal" value={s.gstHighRate} onChange={(e) => setS({ ...s, gstHighRate: pct(e.target.value) })} />
+          </Field>
+          <Field label="GST price limit (₹ per night)" hint="GST is charged on room charges only — extra bills and cover charges have none">
             <input
-              inputMode="decimal"
-              value={s.gstRate}
-              onChange={(e) => setS({ ...s, gstRate: Math.min(100, Number(e.target.value.replace(/[^\d.]/g, '')) || 0) })}
+              inputMode="numeric"
+              value={s.gstSlabLimit}
+              onChange={(e) => setS({ ...s, gstSlabLimit: Number(e.target.value.replace(/\D/g, '')) || 0 })}
             />
           </Field>
           <Field
