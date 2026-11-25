@@ -3,6 +3,7 @@ import type { Guest, Room, Settings } from '../types';
 import { findRoom, roomViews, type RoomView } from '../rooms';
 import { Board, BoardSummary, RoomDrawer, type BoardFilter } from '../components/RoomBoard';
 import { formatDate, matchesSearch, todayStr } from '../utils';
+import { isAdmin } from '../session';
 
 // Room chart: every room in the hotel at a glance.
 export default function Rooms({
@@ -114,7 +115,7 @@ export default function Rooms({
         {rooms.length ? (
           <Board views={views} isLit={isLit} selected={selected?.room.number} onSelect={(n) => { setQ(''); setPicked(n); }} />
         ) : (
-          <p className="muted">No rooms set up yet. Add your rooms in <a href="#/settings">Settings</a>.</p>
+          <p className="muted">No rooms set up yet. {isAdmin() ? <>Add your rooms in <a href="#/settings">Settings</a>.</> : 'Ask the admin to add the rooms.'}</p>
         )}
       </div>
 
