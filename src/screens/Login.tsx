@@ -91,8 +91,8 @@ function OwnerSetup({ onLoggedIn }: { onLoggedIn: () => void }) {
     <form className="stack form" onSubmit={create} noValidate>
       <h1>Set up the owner account</h1>
       <p className="muted">
-        You'll be the admin: you add staff logins, change settings and can void entries. Every staff member then logs in with their own PIN,
-        and their name goes on the bills and reports of their shift.
+        You'll be the main admin: you create a login for each person at the desk (as many as you need), change settings and can
+        void entries. Everyone then logs in with their own PIN, and their name goes on the bills and reports of their shift.
       </p>
       <Field label="Your name" required>
         <input value={name} onChange={(e) => setName(e.target.value)} autoFocus autoComplete="name" />
@@ -149,7 +149,7 @@ function SignIn({ users, onLoggedIn }: { users: User[]; onLoggedIn: () => void }
           >
             <span className="login-avatar" aria-hidden>{u.name.trim()[0]?.toUpperCase()}</span>
             <span>{u.name}</span>
-            <span className="muted small">{u.role === 'admin' ? 'Admin' : 'Staff'}</span>
+            <span className="muted small">{u.role === 'admin' ? 'Main admin' : 'User'}</span>
           </button>
         ))}
       </div>
@@ -196,7 +196,7 @@ function Recover({ admins, onDone }: { admins: User[]; onDone: () => void }) {
   return (
     <form className="stack form" onSubmit={submit} noValidate>
       <h1>Reset a PIN</h1>
-      <p className="muted">Staff: ask an admin to reset your PIN in Settings → Staff logins. Admins: use the recovery code you wrote down at setup.</p>
+      <p className="muted">Users: ask the main admin to reset your PIN. Main admin: use the recovery code you wrote down at setup.</p>
       <Field label="Recovery code">
         <input className="mono" value={code} placeholder="XXXX-XXXX-XXXX" onChange={(e) => setCode(e.target.value.toUpperCase())} autoFocus />
       </Field>

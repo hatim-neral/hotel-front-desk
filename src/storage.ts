@@ -262,8 +262,12 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 
+// There is one main admin: the owner account made at setup (the earliest admin). Everyone the admin
+// adds is a regular user, so any other admin from an earlier version becomes a regular user.
 export async function listUsers(): Promise<User[]> {
-  return readJson<User[]>(USERS_KEY, []);
+  const users = readJson<User[]>(USERS_KEY, []);
+  const main = users.filter((u) => u.role === 'admin').sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+  return users.map((u) => (u.role === 'admin' && u.id !== main?.id ? { ...u, role: 'staff' } : u));
 }
 
 export async function saveUser(user: User): Promise<void> {

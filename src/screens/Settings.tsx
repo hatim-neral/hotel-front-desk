@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Guest, Role, Room, RoomType, Settings, User } from '../types';
+import type { Guest, Room, RoomType, Settings, User } from '../types';
 import { assignGuestNo, deleteGuest, listUsers, resetGuestCounter, saveGuest, saveRooms, saveSettings, saveUser, updateRoom } from '../storage';
 import { createUser, isValidPin, PIN_RULE, setPin } from '../auth';
 import { getSession } from '../session';
@@ -373,24 +373,22 @@ function RoomListUpload({ settings, rooms, onSaved }: { settings: Settings; room
   );
 }
 
-// Add staff, reset a forgotten PIN, switch someone off when they leave.
+// The main admin adds as many logins as needed, resets forgotten PINs and switches off people who leave.
 function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
   const me = getSession()?.user;
   const [users, setUsers] = useState<User[]>([]);
   const [name, setName] = useState('');
-  const [role, setRole] = useState<Role>('staff');
   const [pin, setPinValue] = useState('');
   const [error, setError] = useState('');
   const [resetting, setResetting] = useState<string | null>(null);
   const [newPin, setNewPin] = useState('');
 
-  const load = () => listUsers().then((u) => setUsers(u.sort((a, b) => a.name.localeCompare(b.name))));
+  // main admin first, then everyone else by name
+  const load = () =>
+    listUsers().then((u) => setUsers(u.sort((a, b) => (a.role === 'admin' ? -1 : b.role === 'admin' ? 1 : a.name.localeCompare(b.name)))));
   useEffect(() => {
     load();
   }, []);
-
-  const activeAdmins = users.filter((u) => u.active && u.role === 'admin');
-  const isLastAdmin = (u: User) => u.role === 'admin' && u.active && activeAdmins.length === 1;
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -398,7 +396,7 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
     if (users.some((u) => u.name.trim().toLowerCase() === name.trim().toLowerCase())) return setError('Someone with this name already has a login');
     if (!isValidPin(pin)) return setError(PIN_RULE);
     setError('');
-    await createUser(name, role, pin);
+    await createUser(name, 'staff', pin);
     setName('');
     setPinValue('');
     await load();
@@ -412,25 +410,18 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
   };
 
   return (
-    <Section title="Staff logins">
+    <Section title={`Staff logins (${users.length})`}>
       <p className="wide muted small">
-        Everyone logs in with their own PIN. A shift starts at login and ends at “End shift”, and the person's name goes on every bill,
-        payment and report from their shift. Admins can also change settings, manage logins and remove payments or records.
+        Add a login for each person at the desk — as many as you need. Everyone logs in with their own PIN; a shift starts at login and
+        ends at “End shift”, and the person's name goes on every bill, payment and report from their shift. Only you, the main admin,
+        can change settings, manage logins and remove payments or records.
       </p>
       <div className="wide user-list">
         {users.map((u) => (
           <div key={u.id} className={`user-row${u.active ? '' : ' user-off'}`}>
             <span className="login-avatar" aria-hidden>{u.name.trim()[0]?.toUpperCase()}</span>
             <strong className="grow">{u.name}{u.id === me?.id && <span className="muted small"> (you)</span>}</strong>
-            <select
-              value={u.role}
-              disabled={isLastAdmin(u)}
-              onChange={(e) => update(u, { role: e.target.value as Role }, `${u.name} is now ${e.target.value === 'admin' ? 'an admin' : 'staff'}`)}
-              aria-label={`Role of ${u.name}`}
-            >
-              <option value="staff">Staff</option>
-              <option value="admin">Admin</option>
-            </select>
+            <span className={`badge ${u.role === 'admin' ? 'badge-in' : 'badge-out'}`}>{u.role === 'admin' ? 'Main admin' : 'User'}</span>
             {resetting === u.id ? (
               <span className="user-reset">
                 <input
@@ -463,27 +454,21 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
             ) : (
               <button type="button" className="btn btn-ghost" onClick={() => { setResetting(u.id); setNewPin(''); }}>Reset PIN</button>
             )}
-            <button
-              type="button"
-              className={`btn btn-ghost${u.active ? ' danger-text' : ''}`}
-              disabled={u.id === me?.id || isLastAdmin(u)}
-              title={u.id === me?.id ? 'You cannot switch off your own login' : isLastAdmin(u) ? 'Keep at least one admin' : undefined}
-              onClick={() => update(u, { active: !u.active }, u.active ? `${u.name} can no longer log in` : `${u.name} can log in again`)}
-            >
-              {u.active ? 'Switch off' : 'Switch on'}
-            </button>
+            {u.role !== 'admin' && (
+              <button
+                type="button"
+                className={`btn btn-ghost${u.active ? ' danger-text' : ''}`}
+                onClick={() => update(u, { active: !u.active }, u.active ? `${u.name} can no longer log in` : `${u.name} can log in again`)}
+              >
+                {u.active ? 'Switch off' : 'Switch on'}
+              </button>
+            )}
           </div>
         ))}
       </div>
       <form className="form wide add-rooms" onSubmit={add} noValidate>
         <Field label="Name">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mahesh" />
-        </Field>
-        <Field label="Role">
-          <select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-            <option value="staff">Staff (receptionist)</option>
-            <option value="admin">Admin (owner / manager)</option>
-          </select>
         </Field>
         <Field label="PIN" hint="4 to 8 digits — tell it to the person">
           <input type="text" className="pin-mask" autoComplete="off" inputMode="numeric" maxLength={8} value={pin} onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ''))} />
