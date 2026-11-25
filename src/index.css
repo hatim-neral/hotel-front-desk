@@ -683,6 +683,8 @@ button.quick-result { width: 100%; border: none; background: none; font: inherit
 /* Login */
 .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--bg); }
 .login { width: 100%; max-width: 520px; padding: 28px; }
+.login-desk { display: grid; grid-template-columns: 1fr 1fr; }
+.login-desk button { padding: 10px; font-weight: 600; }
 .login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; font-size: 1.05rem; }
 .login-avatar, .user-avatar {
   display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; flex: none;

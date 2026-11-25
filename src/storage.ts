@@ -10,7 +10,6 @@ const CASHBOOK_KEY = 'hotel.cashbook.v1';
 const USERS_KEY = 'hotel.users.v1';
 const SHIFTS_KEY = 'hotel.shifts.v1';
 const SESSION_KEY = 'hotel.session.v1';
-const RECOVERY_KEY = 'hotel.recovery.v1';
 
 export const DEFAULT_SETTINGS: Settings = {
   hotelName: 'My Hotel',
@@ -323,14 +322,6 @@ export function saveSessionRef(ref: SessionRef | null): void {
   else localStorage.removeItem(SESSION_KEY);
 }
 
-// Hash of the owner's recovery code, for resetting an admin password that was forgotten
-export function loadRecovery(): { hash: string; salt: string } | null {
-  return readJson<{ hash: string; salt: string } | null>(RECOVERY_KEY, null);
-}
-
-export function saveRecovery(r: { hash: string; salt: string }): void {
-  localStorage.setItem(RECOVERY_KEY, JSON.stringify(r));
-}
 
 export function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);

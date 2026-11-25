@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Guest, Room, RoomType, Settings, User } from '../types';
 import { assignGuestNo, deleteGuest, isValidUsername, listUsers, resetGuestCounter, saveGuest, saveRooms, saveSettings, saveUser, suggestUsername, updateRoom, USERNAME_RULE } from '../storage';
 import { createUser, isValidPassword, PASSWORD_RULE, setPin } from '../auth';
+import { builtInAdmin } from '../adminLogin';
 import { getSession } from '../session';
 import { buildSampleGuests, isSample } from '../sampleData';
 import { findRoom, parseRoomList, type RoomImport } from '../rooms';
@@ -398,7 +399,7 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
     if (!name.trim()) return setError('Enter the name');
     if (users.some((u) => u.name.trim().toLowerCase() === name.trim().toLowerCase())) return setError('Someone with this name already has a login');
     if (!isValidUsername(username)) return setError(USERNAME_RULE);
-    if (users.some((u) => u.username === username)) return setError(`The username “${username}” is taken — pick another`);
+    if (users.some((u) => u.username === username) || builtInAdmin?.username === username) return setError(`The username “${username}” is taken — pick another`);
     if (!isValidPassword(pin)) return setError(PASSWORD_RULE);
     setError('');
     await createUser(name, username, 'staff', pin);
@@ -420,8 +421,8 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
   return (
     <Section title={`Staff logins (${users.length})`}>
       <p className="wide muted small">
-        Add a login for each person at the desk — as many as you need — and give them the username and password. They sign in with
-        it; a shift starts at sign-in and ends at “End shift”, and the person's name goes on every bill, payment and report from their
+        Add a login for each person at the desk — as many as you need — and give them the username and password. They sign in on the
+        Reception tab; a shift starts at sign-in and ends at “End shift”, and the person's name goes on every bill, payment and report from their
         shift. Only you, the main admin, can change settings, manage logins and remove payments or records.
       </p>
       <div className="wide user-list">
@@ -464,6 +465,8 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
                 </button>
                 <button type="button" className="btn btn-ghost" onClick={() => setResetting(null)}>Cancel</button>
               </span>
+            ) : u.role === 'admin' && builtInAdmin ? (
+              <span className="muted small">Password set with npm run set-admin</span>
             ) : (
               <button type="button" className="btn btn-ghost" onClick={() => { setResetting(u.id); setNewPin(''); }}>Reset password</button>
             )}

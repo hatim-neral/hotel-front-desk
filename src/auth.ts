@@ -1,8 +1,9 @@
-// Passwords and the recovery code are kept only as salted SHA-256 hashes.
+// Reception passwords are kept only as salted SHA-256 hashes; the admin login is built into the site (adminLogin.ts).
 // This identifies who is working at the desk; it is not protection against someone with access to the
 // device's browser data (everything is stored on this device).
 import type { Role, Shift, User } from './types';
-import { cleanUsername, listShifts, listUsers, loadRecovery, newId, saveRecovery, saveSessionRef, saveShift, saveUser } from './storage';
+import { cleanUsername, listShifts, listUsers, newId, saveSessionRef, saveShift, saveUser } from './storage';
+import { builtInAdmin, checkBuiltInAdmin } from './adminLogin';
 import { setSession } from './session';
 import { nowTime, todayStr } from './utils';
 
@@ -40,33 +41,46 @@ export async function createUser(name: string, username: string, role: Role, pas
   return user;
 }
 
-// Sign in with the username and password the admin gave out
 export type SignInResult = { user: User } | { error: string };
-export async function signIn(username: string, password: string): Promise<SignInResult> {
-  const user = (await listUsers()).find((u) => u.username === cleanUsername(username));
-  if (!user || !(await checkPin(user, password))) return { error: 'Wrong username or password' };
+const WRONG = 'Wrong username or password';
+
+// Reception: only the logins the admin made in Settings
+export async function receptionSignIn(username: string, password: string): Promise<SignInResult> {
+  const user = (await listUsers()).find((u) => u.role === 'staff' && u.username === cleanUsername(username));
+  if (!user || !(await checkPin(user, password))) return { error: WRONG };
   if (!user.active) return { error: 'This login is switched off — ask the admin' };
+  return { user };
+}
+
+// Admin: the login built into the site. On a device where it has not signed in before, its user record
+// is made here; on a device that already has an admin, that record is kept so its history stays the same.
+// A site without a built-in admin falls back to the admin made earlier on this device.
+export async function adminSignIn(username: string, password: string): Promise<SignInResult> {
+  const local = (await listUsers()).find((u) => u.role === 'admin');
+  if (!builtInAdmin) {
+    if (!local) return { error: 'The admin login is not set up for this site yet' };
+    if (local.username !== cleanUsername(username) || !(await checkPin(local, password))) return { error: WRONG };
+    return { user: local };
+  }
+  if (builtInAdmin.username !== cleanUsername(username) || !(await checkBuiltInAdmin(builtInAdmin, password))) return { error: WRONG };
+  const user: User = local
+    ? { ...local, name: builtInAdmin.name, username: builtInAdmin.username, active: true }
+    : {
+        id: newId(),
+        name: builtInAdmin.name,
+        username: builtInAdmin.username,
+        role: 'admin',
+        active: true,
+        createdAt: new Date().toISOString(),
+        pinHash: '',
+        salt: '',
+      };
+  await saveUser(user);
   return { user };
 }
 
 export async function setPin(user: User, pin: string): Promise<void> {
   await saveUser({ ...user, ...(await hashPin(pin)) });
-}
-
-// Recovery code like 7KQ2-M9XD-4TWP, shown once when the owner account is created
-export async function newRecoveryCode(): Promise<string> {
-  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  const chars = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => alphabet[b % alphabet.length]);
-  const code = [0, 4, 8].map((i) => chars.slice(i, i + 4).join('')).join('-');
-  const salt = randomHex(16);
-  saveRecovery({ salt, hash: await sha256(salt + code) });
-  return code;
-}
-
-export async function checkRecoveryCode(code: string): Promise<boolean> {
-  const r = loadRecovery();
-  if (!r) return false;
-  return (await sha256(r.salt + code.trim().toUpperCase())) === r.hash;
 }
 
 // Login starts a new shift. A shift left open on this device (browser closed without "End shift")

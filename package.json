@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "set-admin": "node scripts/set-admin.mjs",
     "predev": "node scripts/build-places.mjs",
     "prebuild": "node scripts/build-places.mjs"
   },
