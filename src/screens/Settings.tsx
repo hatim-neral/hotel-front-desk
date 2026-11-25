@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Guest, Room, RoomType, Settings, User } from '../types';
-import { assignGuestNo, deleteGuest, listUsers, resetGuestCounter, saveGuest, saveRooms, saveSettings, saveUser, updateRoom } from '../storage';
-import { createUser, isValidPin, PIN_RULE, setPin } from '../auth';
+import { assignGuestNo, deleteGuest, isValidUsername, listUsers, resetGuestCounter, saveGuest, saveRooms, saveSettings, saveUser, suggestUsername, updateRoom, USERNAME_RULE } from '../storage';
+import { createUser, isValidPassword, PASSWORD_RULE, setPin } from '../auth';
 import { getSession } from '../session';
 import { buildSampleGuests, isSample } from '../sampleData';
 import { findRoom, parseRoomList, type RoomImport } from '../rooms';
@@ -373,13 +373,16 @@ function RoomListUpload({ settings, rooms, onSaved }: { settings: Settings; room
   );
 }
 
-// The main admin adds as many logins as needed, resets forgotten PINs and switches off people who leave.
+// The main admin adds as many logins as needed, resets forgotten passwords and switches off people who leave.
 function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
   const me = getSession()?.user;
   const [users, setUsers] = useState<User[]>([]);
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
+  const [usernameTouched, setUsernameTouched] = useState(false);
   const [pin, setPinValue] = useState('');
   const [error, setError] = useState('');
+  const [created, setCreated] = useState<{ name: string; username: string; password: string } | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
   const [newPin, setNewPin] = useState('');
 
@@ -394,10 +397,15 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
     e.preventDefault();
     if (!name.trim()) return setError('Enter the name');
     if (users.some((u) => u.name.trim().toLowerCase() === name.trim().toLowerCase())) return setError('Someone with this name already has a login');
-    if (!isValidPin(pin)) return setError(PIN_RULE);
+    if (!isValidUsername(username)) return setError(USERNAME_RULE);
+    if (users.some((u) => u.username === username)) return setError(`The username “${username}” is taken — pick another`);
+    if (!isValidPassword(pin)) return setError(PASSWORD_RULE);
     setError('');
-    await createUser(name, 'staff', pin);
+    await createUser(name, username, 'staff', pin);
+    setCreated({ name: name.trim(), username, password: pin });
     setName('');
+    setUsername('');
+    setUsernameTouched(false);
     setPinValue('');
     await load();
     onSaved(`Login created for ${name.trim()}`);
@@ -412,15 +420,18 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
   return (
     <Section title={`Staff logins (${users.length})`}>
       <p className="wide muted small">
-        Add a login for each person at the desk — as many as you need. Everyone logs in with their own PIN; a shift starts at login and
-        ends at “End shift”, and the person's name goes on every bill, payment and report from their shift. Only you, the main admin,
-        can change settings, manage logins and remove payments or records.
+        Add a login for each person at the desk — as many as you need — and give them the username and password. They sign in with
+        it; a shift starts at sign-in and ends at “End shift”, and the person's name goes on every bill, payment and report from their
+        shift. Only you, the main admin, can change settings, manage logins and remove payments or records.
       </p>
       <div className="wide user-list">
         {users.map((u) => (
           <div key={u.id} className={`user-row${u.active ? '' : ' user-off'}`}>
             <span className="login-avatar" aria-hidden>{u.name.trim()[0]?.toUpperCase()}</span>
-            <strong className="grow">{u.name}{u.id === me?.id && <span className="muted small"> (you)</span>}</strong>
+            <span className="grow">
+              <strong>{u.name}{u.id === me?.id && <span className="muted small"> (you)</span>}</strong>
+              <span className="user-name muted small">Username: <span className="mono">{u.username}</span></span>
+            </span>
             <span className={`badge ${u.role === 'admin' ? 'badge-in' : 'badge-out'}`}>{u.role === 'admin' ? 'Main admin' : 'User'}</span>
             {resetting === u.id ? (
               <span className="user-reset">
@@ -428,23 +439,25 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
                   type="text"
                   className="pin-mask"
                   autoComplete="off"
-                  inputMode="numeric"
-                  maxLength={8}
-                  placeholder="New PIN"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  maxLength={64}
+                  placeholder="New password"
+                  aria-label={`New password for ${u.name}`}
                   value={newPin}
-                  onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
+                  onChange={(e) => setNewPin(e.target.value)}
                   autoFocus
                 />
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={!isValidPin(newPin)}
+                  disabled={!isValidPassword(newPin)}
                   onClick={async () => {
                     await setPin(u, newPin);
                     setResetting(null);
                     setNewPin('');
                     await load();
-                    onSaved(`PIN changed for ${u.name}`);
+                    onSaved(`Password changed for ${u.name}`);
                   }}
                 >
                   Save
@@ -452,7 +465,7 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
                 <button type="button" className="btn btn-ghost" onClick={() => setResetting(null)}>Cancel</button>
               </span>
             ) : (
-              <button type="button" className="btn btn-ghost" onClick={() => { setResetting(u.id); setNewPin(''); }}>Reset PIN</button>
+              <button type="button" className="btn btn-ghost" onClick={() => { setResetting(u.id); setNewPin(''); }}>Reset password</button>
             )}
             {u.role !== 'admin' && (
               <button
@@ -468,14 +481,43 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
       </div>
       <form className="form wide add-rooms" onSubmit={add} noValidate>
         <Field label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mahesh" />
+          <input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (!usernameTouched) setUsername(suggestUsername(e.target.value, users.map((u) => u.username)));
+            }}
+            placeholder="e.g. Mahesh"
+          />
         </Field>
-        <Field label="PIN" hint="4 to 8 digits — tell it to the person">
-          <input type="text" className="pin-mask" autoComplete="off" inputMode="numeric" maxLength={8} value={pin} onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ''))} />
+        <Field label="Username" hint="They type this to sign in">
+          <input
+            value={username}
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            maxLength={20}
+            onChange={(e) => {
+              setUsername(e.target.value.toLowerCase().replace(/\s/g, ''));
+              setUsernameTouched(true);
+            }}
+          />
+        </Field>
+        <Field label="Password" hint="At least 4 characters">
+          <input type="text" className="pin-mask" autoComplete="off" autoCapitalize="off" spellCheck={false} maxLength={64} value={pin} onChange={(e) => setPinValue(e.target.value)} />
         </Field>
         <button type="submit" className="btn btn-primary">Add login</button>
         {error && <p className="field-error wide">{error}</p>}
       </form>
+      {created && (
+        <div className="wide login-made">
+          <span>
+            Give these to <strong>{created.name}</strong> — Username: <strong className="mono">{created.username}</strong> · Password:{' '}
+            <strong className="mono">{created.password}</strong>
+          </span>
+          <button type="button" className="btn btn-ghost" onClick={() => setCreated(null)}>Done</button>
+        </div>
+      )}
     </Section>
   );
 }

@@ -266,8 +266,32 @@ function readJson<T>(key: string, fallback: T): T {
 // adds is a regular user, so any other admin from an earlier version becomes a regular user.
 export async function listUsers(): Promise<User[]> {
   const users = readJson<User[]>(USERS_KEY, []);
+  // Logins from before usernames existed get one made from their name (Mahesh Kumar -> mahesh)
+  if (users.some((u) => !u.username)) {
+    const taken: string[] = users.filter((u) => u.username).map((u) => u.username);
+    for (const u of [...users].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+      if (u.username) continue;
+      u.username = suggestUsername(u.name, taken);
+      taken.push(u.username);
+    }
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  }
   const main = users.filter((u) => u.role === 'admin').sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
   return users.map((u) => (u.role === 'admin' && u.id !== main?.id ? { ...u, role: 'staff' } : u));
+}
+
+// Usernames: 3 to 20 lowercase letters, digits, dots, dashes or underscores
+export const USERNAME_RULE = 'Username: 3 to 20 letters or digits (a dot, dash or underscore is fine), no spaces';
+export const cleanUsername = (text: string) => text.trim().toLowerCase();
+export const isValidUsername = (username: string) => /^[a-z0-9._-]{3,20}$/.test(username);
+
+// First name in lowercase, with a number added when it is taken: mahesh, mahesh2 ...
+export function suggestUsername(name: string, taken: string[]): string {
+  let base = (name.trim().toLowerCase().split(/\s+/)[0] ?? '').replace(/[^a-z0-9]/g, '').slice(0, 16);
+  if (base.length < 3) base = (base + 'user').slice(0, 16);
+  let candidate = base;
+  for (let n = 2; taken.includes(candidate); n++) candidate = base + n;
+  return candidate;
 }
 
 export async function saveUser(user: User): Promise<void> {
@@ -299,7 +323,7 @@ export function saveSessionRef(ref: SessionRef | null): void {
   else localStorage.removeItem(SESSION_KEY);
 }
 
-// Hash of the owner's recovery code, for resetting an admin PIN that was forgotten
+// Hash of the owner's recovery code, for resetting an admin password that was forgotten
 export function loadRecovery(): { hash: string; salt: string } | null {
   return readJson<{ hash: string; salt: string } | null>(RECOVERY_KEY, null);
 }

@@ -23,8 +23,9 @@ export type Role = 'admin' | 'staff';
 export interface User {
   id: string;
   name: string;
+  username: string; // what the person types to sign in, lowercase and unique
   role: Role;
-  pinHash: string; // SHA-256 of salt + PIN; the PIN itself is never stored
+  pinHash: string; // SHA-256 of salt + password; the password itself is never stored
   salt: string;
   active: boolean;
   createdAt: string; // ISO

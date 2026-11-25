@@ -1,8 +1,8 @@
-// PINs and the recovery code are kept only as salted SHA-256 hashes.
+// Passwords and the recovery code are kept only as salted SHA-256 hashes.
 // This identifies who is working at the desk; it is not protection against someone with access to the
 // device's browser data (everything is stored on this device).
 import type { Role, Shift, User } from './types';
-import { listShifts, listUsers, loadRecovery, newId, saveRecovery, saveSessionRef, saveShift, saveUser } from './storage';
+import { cleanUsername, listShifts, listUsers, loadRecovery, newId, saveRecovery, saveSessionRef, saveShift, saveUser } from './storage';
 import { setSession } from './session';
 import { nowTime, todayStr } from './utils';
 
@@ -13,8 +13,9 @@ async function sha256(text: string): Promise<string> {
 
 const randomHex = (bytes: number) => [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
 
-export const PIN_RULE = 'PIN must be 4 to 8 digits';
-export const isValidPin = (pin: string) => /^\d{4,8}$/.test(pin);
+// The admin gives each person a username and a password. Older 4-8 digit PINs keep working as passwords.
+export const PASSWORD_RULE = 'Password must be at least 4 characters';
+export const isValidPassword = (password: string) => password.length >= 4 && password.length <= 64;
 
 export async function hashPin(pin: string): Promise<{ pinHash: string; salt: string }> {
   const salt = randomHex(16);
@@ -25,10 +26,27 @@ export async function checkPin(user: User, pin: string): Promise<boolean> {
   return (await sha256(user.salt + pin)) === user.pinHash;
 }
 
-export async function createUser(name: string, role: Role, pin: string): Promise<User> {
-  const user: User = { id: newId(), name: name.trim(), role, active: true, createdAt: new Date().toISOString(), ...(await hashPin(pin)) };
+export async function createUser(name: string, username: string, role: Role, password: string): Promise<User> {
+  const user: User = {
+    id: newId(),
+    name: name.trim(),
+    username: cleanUsername(username),
+    role,
+    active: true,
+    createdAt: new Date().toISOString(),
+    ...(await hashPin(password)),
+  };
   await saveUser(user);
   return user;
+}
+
+// Sign in with the username and password the admin gave out
+export type SignInResult = { user: User } | { error: string };
+export async function signIn(username: string, password: string): Promise<SignInResult> {
+  const user = (await listUsers()).find((u) => u.username === cleanUsername(username));
+  if (!user || !(await checkPin(user, password))) return { error: 'Wrong username or password' };
+  if (!user.active) return { error: 'This login is switched off — ask the admin' };
+  return { user };
 }
 
 export async function setPin(user: User, pin: string): Promise<void> {
