@@ -16,7 +16,7 @@ export function Field({
         {label}
         {required && <span className="req"> *</span>}
       </span>
-      {children}
+      <div className="field-control">{children}</div>
       {error ? <span className="field-error">{error}</span> : hint && <span className="field-hint">{hint}</span>}
     </div>
   );

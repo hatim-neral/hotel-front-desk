@@ -332,7 +332,13 @@ button.quick-result { width: 100%; border: none; background: none; font: inherit
 .card-title { font-size: 1rem; font-weight: 700; margin: 0 0 14px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 16px; }
 .wide { grid-column: 1 / -1; }
-.field { display: flex; flex-direction: column; gap: 6px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field-control { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* Fields side by side share three rows — label, box, hint — so the boxes line up even when one
+   label wraps onto two lines or only some fields have a hint underneath. */
+.grid > .field, .add-rooms > .field { display: grid; grid-template-rows: subgrid; grid-row: span 3; row-gap: 6px; }
+.grid > .field > .field-label, .add-rooms > .field > .field-label { align-self: end; }
+.add-rooms > .btn { grid-row: span 2; align-self: end; }
 .field-label { font-weight: 600; font-size: 0.88rem; }
 .req { color: var(--danger); }
 .field-hint { font-size: 0.8rem; color: var(--muted); }
@@ -501,7 +507,7 @@ button.quick-result { width: 100%; border: none; background: none; font: inherit
 .type-rows { display: flex; flex-direction: column; gap: 10px; }
 .type-row { display: grid; grid-template-columns: 2fr 1.5fr auto auto; gap: 12px; align-items: end; }
 .type-used { padding-bottom: 12px; }
-.add-rooms { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; }
+.add-rooms { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 6px 12px; }
 .room-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px 16px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
 .room-list-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center; }
 .room-list-row select { min-height: 38px; padding: 6px 10px; }
