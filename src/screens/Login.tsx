@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { Settings } from '../types';
 import { adminSignIn, receptionSignIn, startShift } from '../auth';
+import { cachedHotelName } from '../storage';
 import { Field } from '../components/ui';
 
 type Desk = 'reception' | 'admin';
@@ -16,7 +16,8 @@ function savedTab(): Desk {
 
 // Sign in as reception (a login the admin made in Settings) or as the admin (built into the site).
 // Nobody can create an account here. Signing in starts the person's shift.
-export default function Login({ settings, onLoggedIn }: { settings: Settings; onLoggedIn: () => void }) {
+export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
+  const hotelName = cachedHotelName();
   const [desk, setDesk] = useState<Desk>(savedTab);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -55,8 +56,8 @@ export default function Login({ settings, onLoggedIn }: { settings: Settings; on
     <div className="login-wrap">
       <div className="login card">
         <div className="login-brand">
-          <span className="brand-mark" aria-hidden>{settings.hotelName.trim()[0]?.toUpperCase() || 'H'}</span>
-          <strong>{settings.hotelName}</strong>
+          <span className="brand-mark" aria-hidden>{hotelName.trim()[0]?.toUpperCase() || 'H'}</span>
+          <strong>{hotelName}</strong>
         </div>
         <form className="stack form" onSubmit={submit} noValidate>
           <h1>Sign in</h1>

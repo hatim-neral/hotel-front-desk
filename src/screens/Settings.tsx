@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { Guest, Room, RoomType, Settings, User } from '../types';
-import { assignGuestNo, deleteGuest, isValidUsername, listUsers, resetGuestCounter, saveGuest, saveRooms, saveSettings, saveUser, suggestUsername, updateRoom, USERNAME_RULE } from '../storage';
-import { createUser, isValidPassword, PASSWORD_RULE, setPin } from '../auth';
-import { builtInAdmin } from '../adminLogin';
+import { assignGuestNo, deleteGuest, isValidUsername, listUsers, resetGuestCounter, saveGuest, saveRooms, saveSettings, suggestUsername, updateRoom, USERNAME_RULE } from '../storage';
+import { createReceptionLogin, isValidPassword, PASSWORD_RULE, resetPassword, setLoginActive } from '../auth';
+import { OWNER_USERNAME } from '../cloud';
+import { localData, skipLocalData, uploadLocalData } from '../importLocal';
 import { getSession } from '../session';
 import { buildSampleGuests, isSample } from '../sampleData';
 import { findRoom, parseRoomList, type RoomImport } from '../rooms';
@@ -21,6 +22,11 @@ export default function SettingsScreen({
   onSaved: (msg: string) => void;
 }) {
   const [s, setS] = useState(settings);
+  const [users, setUsers] = useState<User[]>([]);
+  // logins change on other devices too; re-read whenever the app refreshes
+  useEffect(() => {
+    listUsers().then(setUsers);
+  }, [guests, rooms, settings]);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,7 +109,8 @@ export default function SettingsScreen({
         </Section>
       </form>
 
-      <StaffLogins onSaved={onSaved} />
+      <LocalUpload onSaved={onSaved} />
+      <StaffLogins users={users} onSaved={onSaved} />
       <RoomTypesEditor key={JSON.stringify(settings.roomTypes)} settings={settings} rooms={rooms} onSaved={onSaved} />
       <RoomsEditor settings={settings} rooms={rooms} guests={guests} onSaved={onSaved} />
       <RoomListUpload settings={settings} rooms={rooms} onSaved={onSaved} />
@@ -375,65 +382,73 @@ function RoomListUpload({ settings, rooms, onSaved }: { settings: Settings; room
 }
 
 // The main admin adds as many logins as needed, resets forgotten passwords and switches off people who leave.
-function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
+function StaffLogins({ users, onSaved }: { users: User[]; onSaved: (msg: string) => void }) {
   const me = getSession()?.user;
-  const [users, setUsers] = useState<User[]>([]);
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [usernameTouched, setUsernameTouched] = useState(false);
-  const [pin, setPinValue] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ name: string; username: string; password: string } | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
-  const [newPin, setNewPin] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [rowError, setRowError] = useState('');
 
   // main admin first, then everyone else by name
-  const load = () =>
-    listUsers().then((u) => setUsers(u.sort((a, b) => (a.role === 'admin' ? -1 : b.role === 'admin' ? 1 : a.name.localeCompare(b.name)))));
-  useEffect(() => {
-    load();
-  }, []);
+  const sorted = [...users].sort((a, b) => (a.role === 'admin' ? -1 : b.role === 'admin' ? 1 : a.name.localeCompare(b.name)));
+  const taken = [OWNER_USERNAME, ...users.map((u) => u.username)];
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     if (!name.trim()) return setError('Enter the name');
     if (users.some((u) => u.name.trim().toLowerCase() === name.trim().toLowerCase())) return setError('Someone with this name already has a login');
     if (!isValidUsername(username)) return setError(USERNAME_RULE);
-    if (users.some((u) => u.username === username) || builtInAdmin?.username === username) return setError(`The username “${username}” is taken — pick another`);
-    if (!isValidPassword(pin)) return setError(PASSWORD_RULE);
+    if (taken.includes(username)) return setError(`The username “${username}” is taken — pick another`);
+    if (!isValidPassword(password)) return setError(PASSWORD_RULE);
     setError('');
-    await createUser(name, username, 'staff', pin);
-    setCreated({ name: name.trim(), username, password: pin });
+    setBusy(true);
+    const result = await createReceptionLogin(name, username, password);
+    setBusy(false);
+    if ('error' in result) return setError(result.error);
+    setCreated({ name: name.trim(), username, password });
     setName('');
     setUsername('');
     setUsernameTouched(false);
-    setPinValue('');
-    await load();
+    setPassword('');
     onSaved(`Login created for ${name.trim()}`);
   };
 
-  const update = async (u: User, patch: Partial<User>, msg: string) => {
-    await saveUser({ ...u, ...patch });
-    await load();
-    onSaved(msg);
+  const act = async (job: Promise<string | null>, msg: string) => {
+    setBusy(true);
+    const problem = await job;
+    setBusy(false);
+    setRowError(problem ?? '');
+    if (!problem) {
+      setResetting(null);
+      setNewPassword('');
+      onSaved(msg);
+    }
   };
 
   return (
     <Section title={`Staff logins (${users.length})`}>
       <p className="wide muted small">
         Add a login for each person at the desk — as many as you need — and give them the username and password. They sign in on the
-        Reception tab; a shift starts at sign-in and ends at “End shift”, and the person's name goes on every bill, payment and report from their
-        shift. Only you, the main admin, can change settings, manage logins and remove payments or records.
+        Reception tab on any device (computer or phone); a shift starts at sign-in and ends at “End shift”, and the person's name goes
+        on every bill, payment and report from their shift. Only you, the main admin, can change settings, manage logins and remove
+        payments or records. Switching a login off locks it out on every device.
       </p>
       <div className="wide user-list">
-        {users.map((u) => (
+        {sorted.map((u) => (
           <div key={u.id} className={`user-row${u.active ? '' : ' user-off'}`}>
             <span className="login-avatar" aria-hidden>{u.name.trim()[0]?.toUpperCase()}</span>
             <span className="grow">
               <strong>{u.name}{u.id === me?.id && <span className="muted small"> (you)</span>}</strong>
               <span className="user-name muted small">Username: <span className="mono">{u.username}</span></span>
             </span>
-            <span className={`badge ${u.role === 'admin' ? 'badge-in' : 'badge-out'}`}>{u.role === 'admin' ? 'Main admin' : 'User'}</span>
+            <span className={`badge ${u.role === 'admin' ? 'badge-in' : 'badge-out'}`}>{u.role === 'admin' ? 'Main admin' : 'Reception'}</span>
             {resetting === u.id ? (
               <span className="user-reset">
                 <input
@@ -445,42 +460,38 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
                   maxLength={64}
                   placeholder="New password"
                   aria-label={`New password for ${u.name}`}
-                  value={newPin}
-                  onChange={(e) => setNewPin(e.target.value)}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
                   autoFocus
                 />
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={!isValidPassword(newPin)}
-                  onClick={async () => {
-                    await setPin(u, newPin);
-                    setResetting(null);
-                    setNewPin('');
-                    await load();
-                    onSaved(`Password changed for ${u.name}`);
-                  }}
+                  disabled={!isValidPassword(newPassword) || busy}
+                  onClick={() => act(resetPassword(u, newPassword), `Password changed for ${u.name}`)}
                 >
                   Save
                 </button>
-                <button type="button" className="btn btn-ghost" onClick={() => setResetting(null)}>Cancel</button>
+                <button type="button" className="btn btn-ghost" onClick={() => { setResetting(null); setRowError(''); }}>Cancel</button>
               </span>
-            ) : u.role === 'admin' && builtInAdmin ? (
-              <span className="muted small">Password set with npm run set-admin</span>
             ) : (
-              <button type="button" className="btn btn-ghost" onClick={() => { setResetting(u.id); setNewPin(''); }}>Reset password</button>
+              <button type="button" className="btn btn-ghost" onClick={() => { setResetting(u.id); setNewPassword(''); setRowError(''); }}>
+                {u.id === me?.id ? 'Change my password' : 'Reset password'}
+              </button>
             )}
             {u.role !== 'admin' && (
               <button
                 type="button"
                 className={`btn btn-ghost${u.active ? ' danger-text' : ''}`}
-                onClick={() => update(u, { active: !u.active }, u.active ? `${u.name} can no longer log in` : `${u.name} can log in again`)}
+                disabled={busy}
+                onClick={() => act(setLoginActive(u, !u.active), u.active ? `${u.name} can no longer sign in` : `${u.name} can sign in again`)}
               >
                 {u.active ? 'Switch off' : 'Switch on'}
               </button>
             )}
           </div>
         ))}
+        {rowError && <p className="field-error">{rowError}</p>}
       </div>
       <form className="form wide add-rooms" onSubmit={add} noValidate>
         <Field label="Name">
@@ -488,7 +499,7 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
             value={name}
             onChange={(e) => {
               setName(e.target.value);
-              if (!usernameTouched) setUsername(suggestUsername(e.target.value, users.map((u) => u.username)));
+              if (!usernameTouched) setUsername(suggestUsername(e.target.value, taken));
             }}
             placeholder="e.g. Mahesh"
           />
@@ -506,10 +517,10 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
             }}
           />
         </Field>
-        <Field label="Password" hint="At least 4 characters">
-          <input type="text" className="pin-mask" autoComplete="off" autoCapitalize="off" spellCheck={false} maxLength={64} value={pin} onChange={(e) => setPinValue(e.target.value)} />
+        <Field label="Password" hint="At least 6 characters">
+          <input type="text" className="pin-mask" autoComplete="off" autoCapitalize="off" spellCheck={false} maxLength={64} value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
-        <button type="submit" className="btn btn-primary">Add login</button>
+        <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Creating…' : 'Add login'}</button>
         {error && <p className="field-error wide">{error}</p>}
       </form>
       {created && (
@@ -521,6 +532,53 @@ function StaffLogins({ onSaved }: { onSaved: (msg: string) => void }) {
           <button type="button" className="btn btn-ghost" onClick={() => setCreated(null)}>Done</button>
         </div>
       )}
+    </Section>
+  );
+}
+
+// Data this computer saved before the online database: moved online once, by the admin
+function LocalUpload({ onSaved }: { onSaved: (msg: string) => void }) {
+  const [data, setData] = useState(localData);
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!data) return null;
+
+  const upload = async () => {
+    setBusy(true);
+    try {
+      const msg = await uploadLocalData(data, setStatus);
+      setData(null);
+      onSaved(msg);
+    } catch (e) {
+      console.error(e);
+      setStatus('Upload stopped — check the internet connection and press Upload again. Nothing is lost.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="Data saved only on this computer">
+      <p className="wide">
+        This computer has <strong>{data.guests.length} guests</strong>, {data.cash.length} cash entries and {data.shifts.length} shifts
+        from before the online database. Upload them once so every device sees them. Nothing online is overwritten, and this
+        computer keeps its copy as a backup. Old staff logins can't be moved — add them again under Staff logins.
+      </p>
+      {status && <p className="wide muted">{status}</p>}
+      <div className="wide actions">
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={upload}>{busy ? 'Uploading…' : 'Upload to online database'}</button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          disabled={busy}
+          onClick={() => {
+            skipLocalData();
+            setData(null);
+          }}
+        >
+          Don't upload
+        </button>
+      </div>
     </Section>
   );
 }

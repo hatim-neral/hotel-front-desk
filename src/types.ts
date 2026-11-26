@@ -25,8 +25,8 @@ export interface User {
   name: string;
   username: string; // what the person types to sign in, lowercase and unique
   role: Role;
-  pinHash: string; // SHA-256 of salt + password; the password itself is never stored
-  salt: string;
+  uid?: string; // the Firebase login behind it (passwords are kept by Firebase, never here)
+  email?: string; // its made-up sign-in address, e.g. mahesh@desk.example.com
   active: boolean;
   createdAt: string; // ISO
 }

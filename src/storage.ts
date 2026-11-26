@@ -1,15 +1,16 @@
-// All data access goes through this file. Today it uses the browser's
-// localStorage; to move to a server or a mobile database later, only
-// these functions need to change — the screens stay the same.
+// All data access goes through this file. Data lives in the online database (Firestore) so every
+// device sees the same guests, bills, rooms and logins. Screens read from an in-memory copy that live
+// listeners keep up to date, so reading is instant; saving updates that copy at once and sends the
+// change in the background (Firestore queues it while the internet is down).
+import {
+  collection, doc, getDoc, getDocFromCache, getDocsFromCache, onSnapshot, query, runTransaction, serverTimestamp,
+  setDoc, Timestamp, where, writeBatch, type DocumentSnapshot, type Unsubscribe,
+} from 'firebase/firestore';
 import type { CashEntry, Guest, Payment, PaymentMode, Room, RoomType, Settings, Shift, User } from './types';
+import { db } from './cloud';
 
-const GUESTS_KEY = 'hotel.guests.v1';
-const SETTINGS_KEY = 'hotel.settings.v1';
-const ROOMS_KEY = 'hotel.rooms.v1';
-const CASHBOOK_KEY = 'hotel.cashbook.v1';
-const USERS_KEY = 'hotel.users.v1';
-const SHIFTS_KEY = 'hotel.shifts.v1';
 const SESSION_KEY = 'hotel.session.v1';
+const HOTEL_NAME_KEY = 'hotel.name.v1';
 
 export const DEFAULT_SETTINGS: Settings = {
   hotelName: 'My Hotel',
@@ -27,8 +28,155 @@ export const DEFAULT_SETTINGS: Settings = {
   gstin: '',
 };
 
+// ---------- the live copy ----------
+
+// Collections that can grow large are synced by change: each device keeps what it has and
+// listens only for records changed since. Removing a record marks it deleted, so every device
+// hears about it.
+const SYNCED = ['guests', 'cashbook', 'shifts', 'staff'] as const;
+type Synced = (typeof SYNCED)[number];
+
+const live = {
+  guests: new Map<string, Guest>(),
+  cashbook: new Map<string, CashEntry>(),
+  shifts: new Map<string, Shift>(),
+  staff: new Map<string, User>(),
+};
+let liveSettings: Settings | null = null;
+let liveRooms: Room[] = [];
+let unsubs: Unsubscribe[] = [];
+let syncing: Promise<void> | null = null;
+
+let changeListener: () => void = () => {};
+let errorListener: (message: string) => void = () => {};
+export const onDataChange = (fn: () => void) => void (changeListener = fn);
+export const onSaveError = (fn: (message: string) => void) => void (errorListener = fn);
+
+let changeTimer: ReturnType<typeof setTimeout> | undefined;
+function changed() {
+  clearTimeout(changeTimer);
+  changeTimer = setTimeout(() => changeListener(), 30);
+}
+
+function saveFailed(e: unknown) {
+  const code = (e as { code?: string })?.code ?? '';
+  console.error('Save failed', e);
+  errorListener(
+    code === 'permission-denied'
+      ? 'Not saved: this login is not allowed to change that (or has been switched off).'
+      : 'Not saved to the online database — please try again.',
+  );
+}
+
+// Send a change without making the screen wait for the server
+function send(write: Promise<unknown>) {
+  write.catch(saveFailed);
+}
+
+const stamped = <T extends object>(data: T) => ({ ...data, updatedAt: serverTimestamp() });
+const millis = (d: DocumentSnapshot) => (d.get('updatedAt') as Timestamp | null)?.toMillis?.() ?? 0;
+
+function store(name: Synced, d: DocumentSnapshot) {
+  const data = d.data();
+  if (!data || data.deleted) {
+    live[name].delete(d.id);
+    return;
+  }
+  const { updatedAt: _u, ...rest } = data; // eslint-disable-line @typescript-eslint/no-unused-vars
+  if (name === 'guests') live.guests.set(d.id, normalizeGuest(rest as LegacyGuest));
+  else if (name === 'cashbook') live.cashbook.set(d.id, rest as CashEntry);
+  else if (name === 'shifts') live.shifts.set(d.id, rest as Shift);
+  else live.staff.set(d.id, rest as User);
+}
+
+// Wait for the server's answer, but not for ever: offline, the device's own copy is used.
+function firstAnswer(listen: (ready: () => void) => Unsubscribe): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, 6000);
+    unsubs.push(
+      listen(() => {
+        clearTimeout(timer);
+        resolve();
+      }),
+    );
+  });
+}
+
+// Start after signing in (the database only answers signed-in staff). Safe to call again.
+export function startSync(): Promise<void> {
+  syncing ??= (async () => {
+    const answers = SYNCED.map(async (name) => {
+      let since = 0;
+      try {
+        (await getDocsFromCache(collection(db, name))).forEach((d) => {
+          store(name, d);
+          since = Math.max(since, millis(d));
+        });
+      } catch {
+        // nothing kept on this device yet
+      }
+      // a few minutes' overlap so nothing written around the last sync is missed
+      const from = Timestamp.fromMillis(Math.max(0, since - 10 * 60 * 1000));
+      await firstAnswer((ready) =>
+        onSnapshot(
+          query(collection(db, name), where('updatedAt', '>', from)),
+          { includeMetadataChanges: true },
+          (snap) => {
+            snap.docChanges().forEach((c) => (c.type === 'removed' ? live[name].delete(c.doc.id) : store(name, c.doc)));
+            if (snap.docChanges().length) changed();
+            if (!snap.metadata.fromCache) ready();
+          },
+          (e) => {
+            console.error(`Sync of ${name} stopped`, e);
+            ready();
+          },
+        ),
+      );
+    });
+    const settingsAnswer = firstAnswer((ready) =>
+      onSnapshot(
+        doc(db, 'settings', 'hotel'),
+        { includeMetadataChanges: true },
+        (d) => {
+          liveSettings = d.exists() ? normalizeSettings(d.data()) : null;
+          rememberHotelName(liveSettings?.hotelName);
+          changed();
+          if (!d.metadata.fromCache) ready();
+        },
+        () => ready(),
+      ),
+    );
+    const roomsAnswer = firstAnswer((ready) =>
+      onSnapshot(
+        collection(db, 'rooms'),
+        { includeMetadataChanges: true },
+        (snap) => {
+          liveRooms = sortRooms(snap.docs.map((d) => d.data() as Room).map(({ number, type, housekeeping }) => ({ number, type, housekeeping })));
+          changed();
+          if (!snap.metadata.fromCache) ready();
+        },
+        () => ready(),
+      ),
+    );
+    await Promise.all([...answers, settingsAnswer, roomsAnswer]);
+  })();
+  return syncing;
+}
+
+// On sign-out: stop listening and forget the in-memory copy
+export function stopSync() {
+  unsubs.forEach((u) => u());
+  unsubs = [];
+  syncing = null;
+  Object.values(live).forEach((m) => m.clear());
+  liveSettings = null;
+  liveRooms = [];
+}
+
+// ---------- guests ----------
+
 // Fields from earlier versions, converted when records are read
-type LegacyGuest = Guest & { advancePaid?: string; paymentMode?: PaymentMode; finalPayment?: { amount: number; mode: PaymentMode } };
+export type LegacyGuest = Guest & { advancePaid?: string; paymentMode?: PaymentMode; finalPayment?: { amount: number; mode: PaymentMode } };
 
 function legacyPayments(g: LegacyGuest): Payment[] {
   const out: Payment[] = [];
@@ -42,150 +190,149 @@ function legacyPayments(g: LegacyGuest): Payment[] {
 }
 
 export const GUEST_ID_PREFIX = 'HSL';
-const formatGuestNo = (n: number) => GUEST_ID_PREFIX + String(n).padStart(6, '0');
-const guestNoValue = (no: string) => Number(no.slice(GUEST_ID_PREFIX.length)) || 0;
+export const formatGuestNo = (n: number) => GUEST_ID_PREFIX + String(n).padStart(6, '0');
+export const guestNoValue = (no: string) => Number(no.slice(GUEST_ID_PREFIX.length)) || 0;
 
-
-
-function readGuests(): Guest[] {
-  try {
-    const raw: LegacyGuest[] = JSON.parse(localStorage.getItem(GUESTS_KEY) || '[]');
-    // Fill fields added in later versions so older records keep working
-    return raw.map((g) => {
-      const guestDefaults = {
-        passportIssueDate: '', passportPlaceOfIssue: '', visaIssueDate: '', visaPlaceOfIssue: '',
-        addressCountry: g.nationality === 'Foreign' ? g.country : 'India',
-        guestNo: '',
-      };
-      const companionDefaults = { nationality: g.nationality, country: g.country, passportExpiry: '', visaNumber: '', visaExpiry: '' };
-      const { advancePaid: _a, paymentMode: _m, finalPayment: _f, ...rest } = g; // eslint-disable-line @typescript-eslint/no-unused-vars
-      return {
-        ...guestDefaults,
-        ...rest,
-        gstRate: g.gstRate ?? DEFAULT_SETTINGS.gstRate,
-        payments: g.payments ?? legacyPayments(g),
-        // Bills saved before bills had their own IDs get one under the stay's bill ID
-        charges: (g.charges ?? []).map((c, i) => ({ ...c, chargeNo: c.chargeNo || (g.guestNo ? `${g.guestNo}-${String(i + 1).padStart(2, '0')}` : '') })),
-        idPhotos: g.idPhotos ?? [],
-        guestPhoto: g.guestPhoto ?? '',
-        billTo: g.billTo && Object.assign({ contactPerson: '', phone: '', email: '' }, g.billTo), // company contact fields came later
-        roomMoves: g.roomMoves ?? [],
-        companions: (g.companions ?? []).map((c) => ({ ...companionDefaults, ...c })),
-      };
-    });
-  } catch {
-    return [];
-  }
-}
-
-function writeGuests(guests: Guest[]) {
-  localStorage.setItem(GUESTS_KEY, JSON.stringify(guests));
+// Fill fields added in later versions so older records keep working
+export function normalizeGuest(g: LegacyGuest): Guest {
+  const guestDefaults = {
+    passportIssueDate: '', passportPlaceOfIssue: '', visaIssueDate: '', visaPlaceOfIssue: '',
+    addressCountry: g.nationality === 'Foreign' ? g.country : 'India',
+    guestNo: '',
+  };
+  const companionDefaults = { nationality: g.nationality, country: g.country, passportExpiry: '', visaNumber: '', visaExpiry: '' };
+  const { advancePaid: _a, paymentMode: _m, finalPayment: _f, ...rest } = g; // eslint-disable-line @typescript-eslint/no-unused-vars
+  return {
+    ...guestDefaults,
+    ...rest,
+    gstRate: g.gstRate ?? DEFAULT_SETTINGS.gstRate,
+    payments: g.payments ?? legacyPayments(g),
+    // Bills saved before bills had their own IDs get one under the stay's bill ID
+    charges: (g.charges ?? []).map((c, i) => ({ ...c, chargeNo: c.chargeNo || (g.guestNo ? `${g.guestNo}-${String(i + 1).padStart(2, '0')}` : '') })),
+    idPhotos: g.idPhotos ?? [],
+    guestPhoto: g.guestPhoto ?? '',
+    billTo: g.billTo && Object.assign({ contactPerson: '', phone: '', email: '' }, g.billTo), // company contact fields came later
+    roomMoves: g.roomMoves ?? [],
+    companions: (g.companions ?? []).map((c) => ({ ...companionDefaults, ...c })),
+  };
 }
 
 export async function listGuests(): Promise<Guest[]> {
-  let guests = readGuests();
-  const ids = guests.map((g) => g.guestNo);
-  if (ids.some((id) => !id) || new Set(ids).size !== ids.length) guests = await numberOldGuests(guests);
-  return guests.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-// Every stay needs its own bill ID. Records without one (or sharing one, from an earlier version
-// that reused IDs for returning guests) get the next numbers, oldest first.
-async function numberOldGuests(guests: Guest[]): Promise<Guest[]> {
-  const s = await loadSettings();
-  let next = Math.max(s.nextGuestNo, ...guests.map((g) => guestNoValue(g.guestNo) + 1));
-  const used = new Set<string>();
-  const numbered = [...guests]
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .map((g) => {
-      if (g.guestNo && !used.has(g.guestNo)) {
-        used.add(g.guestNo);
-        return g;
-      }
-      const guestNo = formatGuestNo(next++);
-      used.add(guestNo);
-      return { ...g, guestNo, charges: g.charges.map((c, i) => ({ ...c, chargeNo: `${guestNo}-${String(i + 1).padStart(2, '0')}` })) };
-    });
-  writeGuests(numbered);
-  await saveSettings({ ...s, nextGuestNo: next });
-  return numbered;
-}
-
-// A new bill ID for a check-in. Numbers are never reused, even after the guest checks out.
-export async function assignGuestNo(): Promise<string> {
-  const s = await loadSettings();
-  await saveSettings({ ...s, nextGuestNo: s.nextGuestNo + 1 });
-  return formatGuestNo(s.nextGuestNo);
-}
-
-// After removing guests (e.g. practice samples), continue numbering from the highest ID still in use.
-export async function resetGuestCounter(): Promise<void> {
-  const s = await loadSettings();
-  const max = Math.max(0, ...readGuests().map((g) => guestNoValue(g.guestNo)));
-  await saveSettings({ ...s, nextGuestNo: max + 1 });
+  return [...live.guests.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getGuest(id: string): Promise<Guest | undefined> {
-  return readGuests().find((g) => g.id === id);
+  return live.guests.get(id);
 }
 
 export async function saveGuest(guest: Guest): Promise<void> {
-  const guests = readGuests();
-  const i = guests.findIndex((g) => g.id === guest.id);
-  if (i >= 0) guests[i] = guest;
-  else guests.push(guest);
-  writeGuests(guests);
+  live.guests.set(guest.id, guest);
+  send(setDoc(doc(db, 'guests', guest.id), stamped(guest)));
 }
 
+// Admin only. The record is emptied and marked deleted so every device removes it.
 export async function deleteGuest(id: string): Promise<void> {
-  const guest = readGuests().find((g) => g.id === id);
+  const guest = live.guests.get(id);
   await Promise.all([...(guest?.idPhotos ?? []), ...(guest?.guestPhoto ? [guest.guestPhoto] : [])].map(deletePhoto));
-  writeGuests(readGuests().filter((g) => g.id !== id));
+  live.guests.delete(id);
+  send(setDoc(doc(db, 'guests', id), stamped({ id, deleted: true })));
 }
 
-// ID photos are stored in IndexedDB (as JPEG data URLs) because localStorage is too small for images.
-function photoStore(mode: IDBTransactionMode): Promise<IDBObjectStore> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('hotel-photos', 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('photos');
-    req.onsuccess = () => resolve(req.result.transaction('photos', mode).objectStore('photos'));
-    req.onerror = () => reject(req.error);
-  });
+// A new bill ID for a check-in, from one counter shared by all devices so no two stays get the same
+// number. Numbers are never reused, even after the guest checks out. Needs the internet.
+export async function assignGuestNo(): Promise<string> {
+  const floor = Math.max(liveSettings?.nextGuestNo ?? 1, highestGuestNo() + 1);
+  try {
+    const n = await runTransaction(db, async (tx) => {
+      const ref = doc(db, 'meta', 'counter');
+      const snap = await tx.get(ref);
+      const next = Math.max(snap.exists() ? Number(snap.get('next')) || 1 : 1, floor);
+      tx.set(ref, { next: next + 1, updatedAt: serverTimestamp() });
+      return next;
+    });
+    return formatGuestNo(n);
+  } catch (e) {
+    console.error('Bill number', e);
+    throw new Error('A new bill number needs the internet. Check the connection and save again.');
+  }
 }
 
-function done<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+const highestGuestNo = () => Math.max(0, ...[...live.guests.values()].map((g) => guestNoValue(g.guestNo)));
+
+// After removing guests (e.g. practice samples), continue numbering from the highest ID still in use.
+export async function resetGuestCounter(): Promise<void> {
+  send(setDoc(doc(db, 'meta', 'counter'), { next: highestGuestNo() + 1, updatedAt: serverTimestamp() }));
 }
+
+// ---------- photos ----------
+
+// ID and guest photos (JPEG data URLs), one record each, fetched only when shown
+const photoMemo = new Map<string, string>();
 
 export async function savePhoto(id: string, dataUrl: string): Promise<void> {
-  await done((await photoStore('readwrite')).put(dataUrl, id));
+  photoMemo.set(id, dataUrl);
+  send(setDoc(doc(db, 'photos', id), stamped({ data: dataUrl })));
 }
 
 export async function getPhoto(id: string): Promise<string | undefined> {
-  return done((await photoStore('readonly')).get(id));
+  if (photoMemo.has(id)) return photoMemo.get(id);
+  const ref = doc(db, 'photos', id);
+  let d = await getDocFromCache(ref).catch(() => null);
+  if (!d?.exists()) d = await getDoc(ref).catch(() => null);
+  const data = d?.exists() ? (d.get('data') as string) : undefined;
+  if (data) photoMemo.set(id, data);
+  return data;
 }
 
 export async function deletePhoto(id: string): Promise<void> {
-  await done((await photoStore('readwrite')).delete(id));
+  photoMemo.delete(id);
+  send(setDoc(doc(db, 'photos', id), stamped({ deleted: true })));
 }
 
+// ---------- settings and rooms ----------
+
+function normalizeSettings(raw: object): Settings {
+  const s = { ...DEFAULT_SETTINGS, ...raw } as Settings;
+  // Older versions stored room types as plain names without prices, and without AC / Non-AC
+  s.roomTypes = (s.roomTypes as (string | RoomType)[]).map((t) => (typeof t === 'string' ? { name: t, rate: '', ac: true } : { ...t, ac: t.ac ?? true }));
+  delete (s as { updatedAt?: unknown }).updatedAt;
+  return s;
+}
+
+export const hasSavedSettings = () => liveSettings !== null;
+
 export async function loadSettings(): Promise<Settings> {
+  return liveSettings ?? DEFAULT_SETTINGS;
+}
+
+export async function saveSettings(settings: Settings): Promise<void> {
+  liveSettings = settings;
+  rememberHotelName(settings.hotelName);
+  send(setDoc(doc(db, 'settings', 'hotel'), stamped(settings)));
+}
+
+// The sign-in screen shows the hotel name before anyone is signed in
+function rememberHotelName(name?: string) {
   try {
-    const s = { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
-    // Older versions stored room types as plain names without prices, and without AC / Non-AC
-    s.roomTypes = (s.roomTypes as (string | RoomType)[]).map((t) => (typeof t === 'string' ? { name: t, rate: '', ac: true } : { ...t, ac: t.ac ?? true }));
-    return s;
+    if (name) localStorage.setItem(HOTEL_NAME_KEY, name);
   } catch {
-    return DEFAULT_SETTINGS;
+    // only a convenience
+  }
+}
+
+export function cachedHotelName(): string {
+  try {
+    // before the first sign-in on this device: the name saved by the earlier single-device version
+    const old = JSON.parse(localStorage.getItem('hotel.settings.v1') || '{}')?.hotelName;
+    return localStorage.getItem(HOTEL_NAME_KEY) || old || DEFAULT_SETTINGS.hotelName;
+  } catch {
+    return DEFAULT_SETTINGS.hotelName;
   }
 }
 
 // A starting room list of 70 rooms (7 floors x 10): x01-x06 Standard, x07-x09 Deluxe, x10 Suite.
 // The hotel edits it in Settings.
-const DEFAULT_ROOMS: Room[] = Array.from({ length: 70 }, (_, i) => {
+export const DEFAULT_ROOMS: Room[] = Array.from({ length: 70 }, (_, i) => {
   const floor = Math.floor(i / 10) + 1;
   const n = (i % 10) + 1;
   return {
@@ -195,88 +342,63 @@ const DEFAULT_ROOMS: Room[] = Array.from({ length: 70 }, (_, i) => {
   };
 });
 
-// The 10-room list shipped by an earlier version; upgraded to DEFAULT_ROOMS keeping cleaning status.
-const OLD_DEFAULT_NUMBERS = '101,102,103,104,105,106,201,202,203,204';
-
 export function sortRooms(rooms: Room[]): Room[] {
   return [...rooms].sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 }
 
-export async function listRooms(): Promise<Room[]> {
-  try {
-    const raw = localStorage.getItem(ROOMS_KEY);
-    if (!raw) return DEFAULT_ROOMS;
-    const rooms: Room[] = sortRooms(JSON.parse(raw));
-    if (rooms.map((r) => r.number).join(',') === OLD_DEFAULT_NUMBERS) {
-      const upgraded = DEFAULT_ROOMS.map((d) => ({ ...d, housekeeping: findHousekeeping(rooms, d.number) }));
-      await saveRooms(upgraded);
-      return upgraded;
-    }
-    return rooms;
-  } catch {
-    return DEFAULT_ROOMS;
-  }
-}
+const roomRef = (number: string) => doc(db, 'rooms', encodeURIComponent(number.trim().toLowerCase()));
 
-function findHousekeeping(rooms: Room[], number: string): Room['housekeeping'] {
-  return rooms.find((r) => r.number === number)?.housekeeping ?? 'clean';
+export async function listRooms(): Promise<Room[]> {
+  return liveRooms.length ? liveRooms : DEFAULT_ROOMS;
 }
 
 export async function saveRooms(rooms: Room[]): Promise<void> {
-  localStorage.setItem(ROOMS_KEY, JSON.stringify(sortRooms(rooms)));
+  const keep = new Set(rooms.map((r) => roomRef(r.number).id));
+  const removed = (await listRooms()).filter((r) => !keep.has(roomRef(r.number).id));
+  liveRooms = sortRooms(rooms);
+  // a batch holds at most 500 changes
+  const changes = [...rooms.map((r) => ({ r, del: false })), ...removed.map((r) => ({ r, del: true }))];
+  for (let i = 0; i < changes.length; i += 450) {
+    const batch = writeBatch(db);
+    for (const { r, del } of changes.slice(i, i + 450)) {
+      if (del) batch.delete(roomRef(r.number));
+      else batch.set(roomRef(r.number), stamped(r));
+    }
+    send(batch.commit());
+  }
 }
 
 export async function updateRoom(number: string, patch: Partial<Room>): Promise<void> {
   const key = number.trim().toLowerCase();
-  await saveRooms((await listRooms()).map((r) => (r.number.toLowerCase() === key ? { ...r, ...patch } : r)));
+  const rooms = (await listRooms()).map((r) => (r.number.toLowerCase() === key ? { ...r, ...patch } : r));
+  // The starting room list is not saved until something changes; then the whole list is saved once
+  if (!liveRooms.length) return saveRooms(rooms);
+  liveRooms = rooms;
+  const room = rooms.find((r) => r.number.toLowerCase() === key);
+  if (room) send(setDoc(roomRef(room.number), stamped(room)));
 }
 
-export async function saveSettings(settings: Settings): Promise<void> {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-}
+// ---------- cash book ----------
 
 export async function listCashEntries(): Promise<CashEntry[]> {
-  try {
-    return JSON.parse(localStorage.getItem(CASHBOOK_KEY) || '[]');
-  } catch {
-    return [];
-  }
+  return [...live.cashbook.values()];
 }
 
 export async function saveCashEntry(entry: CashEntry): Promise<void> {
-  const entries = (await listCashEntries()).filter((e) => e.id !== entry.id);
-  localStorage.setItem(CASHBOOK_KEY, JSON.stringify([...entries, entry]));
+  live.cashbook.set(entry.id, entry);
+  send(setDoc(doc(db, 'cashbook', entry.id), stamped(entry)));
 }
 
 export async function deleteCashEntry(id: string): Promise<void> {
-  localStorage.setItem(CASHBOOK_KEY, JSON.stringify((await listCashEntries()).filter((e) => e.id !== id)));
+  live.cashbook.delete(id);
+  send(setDoc(doc(db, 'cashbook', id), stamped({ id, deleted: true })));
 }
 
-function readJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
+// ---------- logins and shifts ----------
 
-// There is one main admin: the owner account made at setup (the earliest admin). Everyone the admin
-// adds is a regular user, so any other admin from an earlier version becomes a regular user.
+// The owner (main admin) first, then everyone else
 export async function listUsers(): Promise<User[]> {
-  const users = readJson<User[]>(USERS_KEY, []);
-  // Logins from before usernames existed get one made from their name (Mahesh Kumar -> mahesh)
-  if (users.some((u) => !u.username)) {
-    const taken: string[] = users.filter((u) => u.username).map((u) => u.username);
-    for (const u of [...users].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
-      if (u.username) continue;
-      u.username = suggestUsername(u.name, taken);
-      taken.push(u.username);
-    }
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  }
-  const main = users.filter((u) => u.role === 'admin').sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-  return users.map((u) => (u.role === 'admin' && u.id !== main?.id ? { ...u, role: 'staff' } : u));
+  return [...live.staff.values()];
 }
 
 // Usernames: 3 to 20 lowercase letters, digits, dots, dashes or underscores
@@ -293,35 +415,40 @@ export function suggestUsername(name: string, taken: string[]): string {
   return candidate;
 }
 
-export async function saveUser(user: User): Promise<void> {
-  const users = (await listUsers()).filter((u) => u.id !== user.id);
-  localStorage.setItem(USERS_KEY, JSON.stringify([...users, user]));
-}
-
 export async function listShifts(): Promise<Shift[]> {
-  return readJson<Shift[]>(SHIFTS_KEY, []).sort((a, b) => (b.startDate + b.startTime).localeCompare(a.startDate + a.startTime));
+  return [...live.shifts.values()].sort((a, b) => (b.startDate + b.startTime).localeCompare(a.startDate + a.startTime));
 }
 
 export async function saveShift(shift: Shift): Promise<void> {
-  const shifts = readJson<Shift[]>(SHIFTS_KEY, []).filter((x) => x.id !== shift.id);
-  localStorage.setItem(SHIFTS_KEY, JSON.stringify([...shifts, shift]));
+  live.shifts.set(shift.id, shift);
+  send(setDoc(doc(db, 'shifts', shift.id), stamped(shift)));
 }
 
-// Who is logged in on this device, and their open shift
+// Used by auth.ts, which writes a login's records together
+export const cacheUser = (user: User) => void live.staff.set(user.id, user);
+
+// Who is signed in on this device, and their open shift
 export interface SessionRef {
   userId: string;
   shiftId: string;
 }
 
 export function loadSessionRef(): SessionRef | null {
-  return readJson<SessionRef | null>(SESSION_KEY, null);
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+  } catch {
+    return null;
+  }
 }
 
 export function saveSessionRef(ref: SessionRef | null): void {
-  if (ref) localStorage.setItem(SESSION_KEY, JSON.stringify(ref));
-  else localStorage.removeItem(SESSION_KEY);
+  try {
+    if (ref) localStorage.setItem(SESSION_KEY, JSON.stringify(ref));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // the session then lasts until the page is closed
+  }
 }
-
 
 export function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);

@@ -118,6 +118,8 @@ export default function CheckInForm({
   );
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [newPhotos, setNewPhotos] = useState<Record<string, string>>({});
   // Advance payments taken at check-in (can be split across modes)
   const [advanceRows, setAdvanceRows] = useState<PaymentDraft[]>(() => {
@@ -250,7 +252,19 @@ export default function CheckInForm({
       passportNumber: g.passportNumber.trim().toUpperCase(),
       companions: g.companions.map((c) => ({ ...c, name: c.name.trim(), idNumber: c.idNumber.replace(/\s/g, '').toUpperCase() })),
     };
-    if (!clean.guestNo) clean.guestNo = await assignGuestNo();
+    if (!clean.guestNo) {
+      // the bill number comes from the counter shared by all devices
+      setSaving(true);
+      setSaveError('');
+      try {
+        clean.guestNo = await assignGuestNo();
+      } catch (err) {
+        setSaveError((err as Error).message);
+        return;
+      } finally {
+        setSaving(false);
+      }
+    }
     if (!existing) {
       const who = actor();
       clean.checkedInBy = who.by;
@@ -586,8 +600,9 @@ export default function CheckInForm({
           <span className="error-count">{Object.keys(errors).length} field(s) need attention</span>
         )}
         <a className="btn btn-ghost" href={existing ? `#/guest/${existing.id}` : '#/'}>Cancel</a>
-        <button type="submit" className="btn btn-primary btn-xl">
-          {existing ? 'Save Changes' : 'Check In Guest'}
+        {saveError && <p className="field-error" role="alert">{saveError}</p>}
+        <button type="submit" className="btn btn-primary btn-xl" disabled={saving}>
+          {saving ? 'Saving…' : existing ? 'Save Changes' : 'Check In Guest'}
         </button>
       </div>
     </form>

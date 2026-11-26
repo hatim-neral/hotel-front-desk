@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Guest, Room, Settings } from './types';
-import { DEFAULT_SETTINGS, listGuests, listRooms, loadSessionRef, loadSettings } from './storage';
+import { DEFAULT_SETTINGS, listGuests, listRooms, loadSessionRef, loadSettings, onDataChange, onSaveError } from './storage';
 import Dashboard from './screens/Dashboard';
 import CheckInForm from './screens/CheckInForm';
 import GuestList, { type ListFilter } from './screens/GuestList';
@@ -60,15 +60,21 @@ export default function App() {
   const [, setSessionTick] = useState(0); // re-render after login / logout
 
   const refresh = useCallback(async () => {
-    if (!getSession()) await resumeSession(loadSessionRef());
     setGuests(await listGuests());
     setSettings(await loadSettings());
     setRooms(await listRooms());
-    setLoaded(true);
   }, []);
 
   useEffect(() => {
-    refresh();
+    // changes made on other devices arrive here
+    onDataChange(() => refresh());
+    onSaveError((message) => setToast(message));
+    // once, when the app opens: carry on the shift that was open on this device before a reload
+    (async () => {
+      await resumeSession(loadSessionRef());
+      await refresh();
+      setLoaded(true);
+    })();
   }, [refresh]);
 
   useEffect(() => {
@@ -88,7 +94,6 @@ export default function App() {
   if (!session) {
     return (
       <Login
-        settings={settings}
         onLoggedIn={() => {
           setSessionTick((n) => n + 1);
           location.hash = '#/';

@@ -1,0 +1,69 @@
+rules_version = '2';
+
+// Who can read and change the hotel's data. Paste this into Firebase console → Firestore Database → Rules
+// (or deploy it with the Firebase CLI) whenever it changes.
+// - The owner (main admin) is the login abhinav@desk.example.com (see src/cloud.ts).
+// - Reception logins work only while their access record says active; the admin switches them off in Settings.
+// - Nobody else can read anything except one username → sign-in address at a time, for signing in.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function owner() {
+      return signedIn() && request.auth.token.email == 'abhinav@desk.example.com';
+    }
+    function member() {
+      return owner() || (signedIn()
+        && exists(/databases/$(database)/documents/access/$(request.auth.uid))
+        && get(/databases/$(database)/documents/access/$(request.auth.uid)).data.active == true);
+    }
+    // only the admin removes records (a removal is saved as deleted: true so every device hears of it)
+    function notRemoving() {
+      return owner() || request.resource.data.get('deleted', false) == false;
+    }
+
+    // username → sign-in address, read one at a time before signing in; never listed
+    match /logins/{username} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if owner();
+    }
+    match /access/{uid} {
+      allow get: if owner() || (signedIn() && request.auth.uid == uid);
+      allow list, write: if owner();
+    }
+    match /staff/{id} {
+      allow read: if member();
+      allow write: if owner();
+    }
+    match /settings/{id} {
+      allow read: if member();
+      allow write: if owner();
+    }
+    match /rooms/{id} {
+      allow read, create, update: if member();
+      allow delete: if owner();
+    }
+    match /guests/{id} {
+      allow read, create: if member();
+      allow update: if member() && notRemoving();
+      allow delete: if owner();
+    }
+    match /cashbook/{id} {
+      allow read, create: if member();
+      allow update: if member() && notRemoving();
+      allow delete: if owner();
+    }
+    match /shifts/{id} {
+      allow read, create, update: if member();
+      allow delete: if owner();
+    }
+    match /photos/{id} {
+      allow read, write: if member();
+    }
+    match /meta/{id} {
+      allow read, write: if member();
+    }
+  }
+}
