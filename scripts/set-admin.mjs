@@ -37,7 +37,7 @@ const fail = (msg) => {
 if (!name) fail('Enter the admin name.');
 if (!/^[a-z0-9._-]{3,20}$/.test(username)) fail('Username: 3 to 20 letters or digits (a dot, dash or underscore is fine), no spaces.');
 // The site's code is public, so the admin password has to be hard to guess
-if (password.length < 8) fail('The admin password must be at least 8 characters.');
+if (password.length < 6) fail('The admin password must be at least 6 characters.');
 if (password !== again) fail('The two passwords do not match.');
 
 const salt = randomBytes(16).toString('hex');
