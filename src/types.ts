@@ -164,6 +164,7 @@ export interface Guest {
   ratePerNight: string;
   gstRate: number; // % GST for this stay, from the room price slab
   gstRoomOnly?: boolean; // GST on room charges only (all stays from now on); older stays taxed the whole bill
+  gstInclusive?: boolean; // the rate per night already includes GST (otherwise GST is added on top)
   payments: Payment[];
   billTo?: BillTo; // set when a company pays the bill
   charges: Charge[];
@@ -211,5 +212,6 @@ export interface Settings {
   gstRate: number; // %, GST on room charges when the room price is up to gstSlabLimit per night
   gstHighRate: number; // %, GST when the room price is above gstSlabLimit
   gstSlabLimit: number; // ₹ per night
+  gstInclusive: boolean; // new check-ins: room tariffs include GST (otherwise GST is added on top)
   gstin: string; // hotel's GST number, printed on bills
 }

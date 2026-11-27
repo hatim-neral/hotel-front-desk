@@ -89,6 +89,13 @@ export default function SettingsScreen({
           <Field label={`GST on rooms above ${rupees(s.gstSlabLimit)}/night (%)`}>
             <input inputMode="decimal" value={s.gstHighRate} onChange={(e) => setS({ ...s, gstHighRate: pct(e.target.value) })} />
           </Field>
+          <Field label="Room tariffs" hint="For new check-ins; can be changed on each check-in">
+            <Segmented
+              options={['Excluding GST', 'Including GST'] as const}
+              value={s.gstInclusive ? 'Including GST' : 'Excluding GST'}
+              onChange={(v) => setS({ ...s, gstInclusive: v === 'Including GST' })}
+            />
+          </Field>
           <Field label="GST price limit (₹ per night)" hint="GST is charged on room charges only — extra bills and cover charges have none">
             <input
               inputMode="numeric"

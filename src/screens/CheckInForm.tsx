@@ -12,7 +12,7 @@ import { draftTotal, emptyBillTo, toPayments, type PaymentDraft } from '../payme
 import CompanyFields from '../components/CompanyFields';
 import PlaceFields, { COUNTRY_LIST_ID, CountryList } from '../components/PlaceFields';
 import { findRoom, rateFor, ROOM_STATE_LABEL, roomViews, typeLabel } from '../rooms';
-import { addDays, formatAadhaar, formatDate, go, gstRateFor, nightsBetween, nowTime, rupees, todayStr } from '../utils';
+import { addDays, formatAadhaar, formatDate, go, gstRateFor, nightsBetween, nowTime, rupees, tariffIncludesGst, todayStr } from '../utils';
 
 function blankGuest(settings: Settings, room?: Room): Guest {
   return {
@@ -27,7 +27,7 @@ function blankGuest(settings: Settings, room?: Room): Guest {
     roomNumber: room?.number ?? '', roomType: room?.type ?? settings.roomTypes[0]?.name ?? '', adults: 1, children: 0, companions: [],
     checkInDate: todayStr(), checkInTime: nowTime(),
     checkOutDate: '', checkOutTime: settings.defaultCheckOutTime,
-    ratePerNight: room ? rateFor(settings, room.type) : '', gstRate: settings.gstRate, gstRoomOnly: true, payments: [], charges: [], roomMoves: [],
+    ratePerNight: room ? rateFor(settings, room.type) : '', gstRate: settings.gstRate, gstRoomOnly: true, gstInclusive: settings.gstInclusive, payments: [], charges: [], roomMoves: [],
     remarks: '', createdAt: new Date().toISOString(),
   };
 }
@@ -42,7 +42,7 @@ function returningStay(prev: Guest, settings: Settings, rooms: Room[], guests: G
   const guest: Guest = {
     ...prev,
     id: fresh.id, guestNo: '', status: 'in', idPhotos: [], guestPhoto: '',
-    roomNumber: fresh.roomNumber, roomType: fresh.roomType, ratePerNight: fresh.ratePerNight, gstRate: fresh.gstRate, gstRoomOnly: true, roomMoves: [],
+    roomNumber: fresh.roomNumber, roomType: fresh.roomType, ratePerNight: fresh.ratePerNight, gstRate: fresh.gstRate, gstRoomOnly: true, gstInclusive: fresh.gstInclusive, roomMoves: [],
     checkInDate: fresh.checkInDate, checkInTime: fresh.checkInTime, checkOutDate: '', checkOutTime: fresh.checkOutTime,
     payments: [], charges: [], remarks: '', createdAt: fresh.createdAt, checkedOutAt: undefined,
   };
@@ -217,10 +217,12 @@ export default function CheckInForm({
 
   const nights = nightsBetween(g.checkInDate, g.checkOutDate);
   const roomTotal = nights * (Number(g.ratePerNight) || 0);
+  const inclusive = tariffIncludesGst(g);
   // GST follows the room price slab (5% up to ₹7,500/night, 18% above); stays from before keep their old rate
-  const gstRate = g.gstRoomOnly ? gstRateFor(settings, g.ratePerNight) : g.gstRate;
-  const gst = Math.round(roomTotal * gstRate) / 100;
-  const total = roomTotal + gst;
+  const gstRate = g.gstRoomOnly ? gstRateFor(settings, g.ratePerNight, inclusive) : g.gstRate;
+  // A tariff that includes GST is the final price; otherwise GST is added on top
+  const gst = inclusive ? Math.round((roomTotal - (roomTotal * 100) / (100 + gstRate)) * 100) / 100 : Math.round(roomTotal * gstRate) / 100;
+  const total = inclusive ? roomTotal : roomTotal + gst;
   const advance = draftTotal(advanceRows);
   const isIndian = g.nationality === 'Indian';
   const indianPassport = isIndian && g.idType === 'Passport';
@@ -286,7 +288,7 @@ export default function CheckInForm({
   };
 
   const photoField = (
-    <Field label="Photo of ID proof" hint="Front and back. On a phone or tablet this opens the camera." wide>
+    <Field label="Photo of ID proof" hint="Optional. Front and back. On a phone or tablet this opens the camera." wide>
       <IdPhotos
         ids={g.idPhotos}
         pending={newPhotos}
@@ -394,10 +396,10 @@ export default function CheckInForm({
 
       {isIndian ? (
         <Section title={num() + 'ID proof'}>
-          <Field label="ID type" required wide>
+          <Field label="ID type" wide>
             <Segmented options={ID_TYPES} value={g.idType} onChange={(v: IdType) => set('idType', v)} />
           </Field>
-          <Field label={`${g.idType} number`} required error={errors.idNumber} wide={!indianPassport}>
+          <Field label={`${g.idType} number`} hint="Optional" error={errors.idNumber} wide={!indianPassport}>
             <input
               value={g.idType === 'Aadhaar' ? formatAadhaar(g.idNumber) : g.idNumber}
               inputMode={g.idType === 'Aadhaar' ? 'numeric' : 'text'}
@@ -562,7 +564,16 @@ export default function CheckInForm({
       </Section>
 
       <Section title={num() + 'Payment'}>
-        <Field label="Rate per night (₹)" hint="Filled from the room type — change it for a discount">
+        {g.gstRoomOnly && (
+          <Field label="Room tariff" wide>
+            <Segmented
+              options={['Excluding GST', 'Including GST'] as const}
+              value={g.gstInclusive ? 'Including GST' : 'Excluding GST'}
+              onChange={(v) => set('gstInclusive', v === 'Including GST')}
+            />
+          </Field>
+        )}
+        <Field label={inclusive ? 'Rate per night incl. GST (₹)' : 'Rate per night (₹)'} hint="Filled from the room type — change it for a discount">
           <input inputMode="decimal" value={g.ratePerNight} onChange={(e) => set('ratePerNight', e.target.value.replace(/[^\d.]/g, ''))} />
         </Field>
         <Field
@@ -585,7 +596,8 @@ export default function CheckInForm({
         {roomTotal > 0 && (
           <div className="summary wide">
             <span>
-              {nights} night{nights !== 1 && 's'} × {rupees(Number(g.ratePerNight))} + GST {gstRate}% = <strong>{rupees(total)}</strong>
+              {nights} night{nights !== 1 && 's'} × {rupees(Number(g.ratePerNight))}{' '}
+              {inclusive ? <>incl. GST {gstRate}% ({rupees(gst)})</> : <>+ GST {gstRate}%</>} = <strong>{rupees(total)}</strong>
             </span>
             <span>Balance due: <strong>{rupees(total - advance)}</strong></span>
           </div>

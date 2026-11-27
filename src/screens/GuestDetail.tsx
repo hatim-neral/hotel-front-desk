@@ -15,7 +15,7 @@ import { AddCharge, ChargeForm } from '../components/ChargeForm';
 import RoomChange from '../components/RoomChange';
 import { actor, getSession, isAdmin } from '../session';
 import {
-  billFor, withCharge, formatAadhaar, formatDate, formatTime, go, isDueOutToday, maskId, nowTime, rupees, todayStr,
+  billFor, withCharge, formatAadhaar, formatDate, formatTime, go, isDueOutToday, maskId, nowTime, rateBeforeGst, rupees, todayStr,
 } from '../utils';
 
 export default function GuestDetail({
@@ -225,14 +225,20 @@ export default function GuestDetail({
           <span className="muted">{g.checkOutDate && formatTime(g.checkOutTime)}</span>
         </div>
         <div className="stat">
-          <span className="stat-label">{isIndian ? g.idType : 'Passport'}</span>
-          <span className="stat-val mono">
-            <span className="no-print">{showId ? fullId : maskId(fullId)}</span>
-            <span className="print-only">{fullId}</span>
-          </span>
-          <button type="button" className="link no-print" onClick={() => setShowId(!showId)}>
-            {showId ? 'Hide' : 'Show full number'}
-          </button>
+          <span className="stat-label">{isIndian ? (fullId ? g.idType : 'ID proof') : 'Passport'}</span>
+          {fullId ? (
+            <>
+              <span className="stat-val mono">
+                <span className="no-print">{showId ? fullId : maskId(fullId)}</span>
+                <span className="print-only">{fullId}</span>
+              </span>
+              <button type="button" className="link no-print" onClick={() => setShowId(!showId)}>
+                {showId ? 'Hide' : 'Show full number'}
+              </button>
+            </>
+          ) : (
+            <span className="stat-val">Not given</span>
+          )}
         </div>
         <div className={`stat${bill.balance > 0 ? ' stat-warn' : ''}`}>
           <span className="stat-label">{bill.balance < 0 ? 'Refund due' : 'Balance due'}</span>
@@ -408,7 +414,8 @@ export default function GuestDetail({
               <td>{formatDate(g.checkInDate)}</td>
               <td className="mono">{g.guestNo}</td>
               <td>
-                Room {g.roomNumber} ({roomTypeLabel}): {bill.nights} night{bill.nights > 1 && 's'} × {rupees(Number(g.ratePerNight) || 0)}
+                Room {g.roomNumber} ({roomTypeLabel}): {bill.nights} night{bill.nights > 1 && 's'} × {rupees(rateBeforeGst(g))}
+                {bill.inclusive && <span className="muted"> ({rupees(Number(g.ratePerNight) || 0)} incl. GST)</span>}
                 {inHouse && <span className="muted"> (so far)</span>}
                 {g.roomMoves.length > 0 && (
                   <span className="muted"> · shifted from {g.roomMoves.map((m) => m.from).join(', ')}</span>

@@ -2,7 +2,7 @@
 // tables in one shape, so the screen, print and CSV export work the same for every report.
 import type { CashEntry, Guest, PaymentMode, Room, Settings, Shift } from './types';
 import { COVER_CHARGE } from './types';
-import { billFor, formatDate, formatTime, todayStr, addDays } from './utils';
+import { billFor, formatDate, formatTime, rateBeforeGst, todayStr, addDays } from './utils';
 import { splitGst } from './gst';
 
 // ---------- periods ----------
@@ -410,7 +410,7 @@ function occupancyReport(ctx: ReportContext): ReportResult {
   const total = ctx.rooms.length || 1;
   const rows = days.map((d) => {
     const stays = ctx.guests.filter((g) => staysNight(g, d, today));
-    const revenue = sum(stays.map((g) => Number(g.ratePerNight) || 0));
+    const revenue = sum(stays.map(rateBeforeGst));
     return { d, occupied: stays.length, revenue };
   });
   const nights = rows.reduce((a, r) => a + r.occupied, 0);
@@ -438,7 +438,7 @@ function occupancyReport(ctx: ReportContext): ReportResult {
 // ---------- registers ----------
 
 function idOf(g: Guest): string {
-  return g.nationality === 'Foreign' ? `Passport ${g.passportNumber}` : `${g.idType} ${g.idNumber}`;
+  return g.nationality === 'Foreign' ? `Passport ${g.passportNumber}` : g.idNumber ? `${g.idType} ${g.idNumber}` : '';
 }
 
 function checkinsReport(ctx: ReportContext): ReportResult {

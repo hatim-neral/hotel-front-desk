@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Guest, Room, Settings } from '../types';
 import { newId, saveGuest, updateRoom } from '../storage';
 import { findRoom, rateFor, roomViews, typeLabel } from '../rooms';
-import { gstRateFor, nowTime, rupees, todayStr } from '../utils';
+import { gstRateFor, nowTime, rupees, tariffIncludesGst, todayStr } from '../utils';
 import { Field, Segmented } from './ui';
 import { actor } from '../session';
 
@@ -49,7 +49,7 @@ export default function RoomChange({
       roomNumber: room.number,
       roomType: room.type,
       ratePerNight,
-      gstRate: g.gstRoomOnly ? gstRateFor(settings, ratePerNight) : g.gstRate,
+      gstRate: g.gstRoomOnly ? gstRateFor(settings, ratePerNight, tariffIncludesGst(g)) : g.gstRate,
       roomMoves: [
         ...g.roomMoves,
         { id: newId(), date: todayStr(), time: nowTime(), from: g.roomNumber, to: room.number, fromType: g.roomType, toType: room.type, reason: reason.trim(), ...actor() },

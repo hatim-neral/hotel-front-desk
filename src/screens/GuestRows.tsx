@@ -16,7 +16,7 @@ export default function GuestRows({ guests }: { guests: Guest[] }) {
               <span className="row-main">
                 <strong>{g.fullName}{isSample(g) && <span className="badge badge-sample">Sample</span>}</strong>
                 <span className="muted">
-                  {g.guestNo} · {g.phone} · {idName} {maskId(idRest.join(' '))}
+                  {g.guestNo} · {g.phone} · {idRest.length ? <>{idName} {maskId(idRest.join(' '))}</> : 'No ID'}
                   {g.adults + g.children > 1 && ` · ${g.adults + g.children} guests`}
                 </span>
               </span>

@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gstRate: 5,
   gstHighRate: 18,
   gstSlabLimit: 7500,
+  gstInclusive: false,
   gstin: '',
 };
 

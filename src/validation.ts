@@ -81,8 +81,11 @@ export function validateGuest(g: Guest, occupiedRooms: Map<string, string>, room
   req('gender', 'Select gender');
   if (g.nationality === 'Indian') {
     if (!/^[6-9]\d{9}$/.test(g.phone)) e.phone = 'Enter a 10-digit mobile number';
-    e.idNumber = idNumberError(g.idType, g.idNumber);
-    if (g.idType === 'Passport') passportDates();
+    // ID proof is optional; when a number is entered it must look right
+    if (g.idNumber.trim()) {
+      e.idNumber = idNumberError(g.idType, g.idNumber);
+      if (g.idType === 'Passport') passportDates();
+    }
     if (g.addressCountry === 'India' && g.pincode && !/^\d{6}$/.test(g.pincode)) e.pincode = 'Pincode must be 6 digits';
   } else {
     if (!/^\+?\d{7,15}$/.test(g.phone.replace(/[\s-]/g, ''))) e.phone = 'Enter phone with country code';

@@ -68,7 +68,7 @@ export function isDueOutToday(g: Guest): boolean {
 }
 
 export function guestIdLabel(g: Guest): string {
-  return g.nationality === 'Foreign' ? `Passport ${g.passportNumber}` : `${g.idType} ${g.idNumber}`;
+  return g.nationality === 'Foreign' ? `Passport ${g.passportNumber}` : g.idNumber ? `${g.idType} ${g.idNumber}` : 'No ID';
 }
 
 export function matchesSearch(g: Guest, q: string): boolean {
@@ -93,7 +93,7 @@ export function toCsv(guests: Guest[]): string {
     'address', 'city', 'state', 'addressCountry', 'pincode', 'purpose',
     'arrivingFrom', 'goingTo', 'vehicleNumber', 'roomNumber', 'roomType', 'adults',
     'children', 'checkInDate', 'checkInTime', 'checkOutDate', 'checkOutTime',
-    'ratePerNight', 'gstRate', 'status', 'checkedOutAt', 'remarks',
+    'ratePerNight', 'gstRate', 'gstInclusive', 'status', 'checkedOutAt', 'remarks',
   ];
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = guests.map((g) => {
@@ -123,9 +123,21 @@ export function rupees(n: number): string {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// GST slab for a room price: up to the limit (₹7,500/night) the lower rate, above it the higher rate
-export function gstRateFor(settings: Settings, ratePerNight: string | number): number {
-  return (Number(ratePerNight) || 0) > settings.gstSlabLimit ? settings.gstHighRate : settings.gstRate;
+// GST slab for a room price: up to the limit (₹7,500/night) the lower rate, above it the higher rate.
+// The limit is on the price before GST, so a tariff that includes GST has the GST taken out first.
+export function gstRateFor(settings: Settings, ratePerNight: string | number, inclusive = false): number {
+  const rate = Number(ratePerNight) || 0;
+  const beforeGst = inclusive ? (rate * 100) / (100 + settings.gstRate) : rate;
+  return beforeGst > settings.gstSlabLimit ? settings.gstHighRate : settings.gstRate;
+}
+
+// Does this stay's rate per night already include GST? (Only stays taxed on the room alone can.)
+export const tariffIncludesGst = (g: Pick<Guest, 'gstInclusive' | 'gstRoomOnly'>) => !!g.gstInclusive && !!g.gstRoomOnly;
+
+// Room price per night before GST
+export function rateBeforeGst(g: Pick<Guest, 'ratePerNight' | 'gstRate' | 'gstInclusive' | 'gstRoomOnly'>): number {
+  const rate = Number(g.ratePerNight) || 0;
+  return tariffIncludesGst(g) ? round2((rate * 100) / (100 + (g.gstRate || 0))) : rate;
 }
 
 // Running bill for a stay. While in-house, room nights are counted up to today (minimum 1).
@@ -133,18 +145,21 @@ export function gstRateFor(settings: Settings, ratePerNight: string | number): n
 // this rule taxed the whole bill and keep doing so.) Payments, and refunds as negatives, are taken off.
 export function billFor(g: Guest) {
   const nights = Math.max(1, nightsBetween(g.checkInDate, g.status === 'in' ? todayStr() : g.checkOutDate));
-  const roomTotal = nights * (Number(g.ratePerNight) || 0);
+  // When the tariff includes GST, the room charges shown are the part before GST
+  const inclusive = tariffIncludesGst(g);
+  const roomCharged = nights * (Number(g.ratePerNight) || 0);
+  const roomTotal = inclusive ? round2((roomCharged * 100) / (100 + (g.gstRate || 0))) : roomCharged;
   const amountOf = (cover: boolean) =>
     g.charges.filter((c) => (c.category === COVER_CHARGE) === cover).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
   const extras = amountOf(false);
   const cover = amountOf(true);
   const subtotal = roomTotal + extras + cover;
   const taxable = g.gstRoomOnly ? roomTotal : subtotal;
-  const gst = round2((taxable * (g.gstRate || 0)) / 100);
+  const gst = inclusive ? round2(roomCharged - roomTotal) : round2((taxable * (g.gstRate || 0)) / 100);
   const total = round2(subtotal + gst);
   const paid = round2(g.payments.reduce((sum, p) => sum + p.amount, 0));
   return {
-    nights, roomTotal, extras, cover, subtotal, taxable, roomOnly: !!g.gstRoomOnly,
+    nights, roomTotal, extras, cover, subtotal, taxable, roomOnly: !!g.gstRoomOnly, inclusive,
     gstRate: g.gstRate || 0, gst, total, paid, balance: round2(total - paid),
   };
 }
